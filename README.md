@@ -111,19 +111,28 @@ npm run format
 
 `npm run serve` starts an HTTP server on `http://127.0.0.1:3000` that serves the
 built GUI from `web/dist/` and exposes the REST + SSE API below. The GUI is a
-single-page React app with four views:
+single-page React app with five views:
 
-- **Dashboard** — pipeline status (prompt present, issues on file, model), a
-  static `prompt:check` runner, the refinement runner (issues file + optional
-  human feedback), and a **live pipeline log** streamed over SSE.
-- **Prompt Editor** — dual-mode Markdown editor (source + sanitized visual
-  preview) for the active prompt, with two-step save and automatic backups,
-  plus the regression-case list.
+- **Dashboard** — a **Start here** card to upload a `.md` prompt file or paste
+  Markdown (validated + previewed, used for that run only — the on-file
+  prompt is never overwritten), pipeline status (prompt present, issues on
+  file, model), a static `prompt:check` runner, the refinement runner (issues
+  file + optional human feedback, with a prompt-source indicator), and a
+  **live pipeline log** streamed over SSE.
+- **Prompt Editor** — an Obsidian-lite manuscript editor for the active
+  prompt: syntax-highlighted Markdown source, live sanitized preview,
+  synced-scroll split view, formatting toolbar + keyboard shortcuts, an
+  auto-tracking heading outline, **find-in-document (`⌘F`)** that highlights
+  both panes at once, **Download .md** export, a day/night theme toggle, and
+  localStorage draft persistence with a restore banner. Two-step save with
+  automatic backups, plus the regression-case list.
 - **Issues** — view, filter (category/severity), add, and delete structured
   issues in `issues.json` (schema-validated server-side).
 - **History** — browser over `prompt-history/`: audit reports (status, scores,
   rationale, violations, raw `refinerResponse`), candidate prompts with a
   side-by-side diff against the active prompt, promotion audits, and backups.
+- **Manual** — `USER_MANUAL.md` rendered in-app (via `GET /api/manual`) with a
+  heading table of contents, so the CLI, MCP, and GUI docs live in one place.
 
 **Promotion stays human-in-the-loop.** The GUI's "Approve & promote" is a
 two-step flow: the first call arms the request (the server answers `409` until
@@ -134,23 +143,24 @@ server-side — a candidate that fails the static safety scan is refused with
 
 ### REST API
 
-| Method | Path                 | Description                                                                                                                                                                        |
-| ------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/health`        | Service status: prompt presence/chars, issues count, model                                                                                                                         |
-| GET    | `/api/events`        | SSE stream of pipeline progress events (`load`, `llm`, `evaluator`, `write`, `done`)                                                                                               |
-| GET    | `/api/logs`          | Recent pipeline events (replay buffer, capped at 200)                                                                                                                              |
-| GET    | `/api/prompt`        | The active system prompt (`{ path, content, chars }`)                                                                                                                              |
-| PUT    | `/api/prompt`        | Two-step save: `{ content, confirm }` (409 until `confirm: true`); backs up first                                                                                                  |
-| GET    | `/api/issues`        | Issues list from `issues.json`                                                                                                                                                     |
-| POST   | `/api/issues`        | Add an issue (validated against the issue schema)                                                                                                                                  |
-| PUT    | `/api/issues`        | Replace the full issues list (`{ issues: [...] }`, validated)                                                                                                                      |
-| DELETE | `/api/issues`        | Remove by index (`{ index }`)                                                                                                                                                      |
-| GET    | `/api/cases`         | Regression cases from `cases.json`                                                                                                                                                 |
-| GET    | `/api/check`         | Runs `npm run prompt:check` and returns exit code + output lines                                                                                                                   |
-| GET    | `/api/history`       | Timestamped entries in `prompt-history/` (newest first)                                                                                                                            |
-| GET    | `/api/history/:name` | Raw content of one history file                                                                                                                                                    |
-| POST   | `/api/refine`        | Runs the full refinement pipeline: `{ issuesFile, feedback? }`; streams progress over SSE; returns the report path + candidate path. Refuses (`409`) while a run is in progress    |
-| POST   | `/api/promote`       | Two-step promotion: `{ candidatePath, confirm }`; re-runs the static safety scan and refuses unsafe candidates with `409`; backs up the active prompt and writes a promotion audit |
+| Method | Path                 | Description                                                                                                                                                                                                                                              |
+| ------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/health`        | Service status: prompt presence/chars, issues count, model                                                                                                                                                                                               |
+| GET    | `/api/events`        | SSE stream of pipeline progress events (`load`, `llm`, `evaluator`, `write`, `done`)                                                                                                                                                                     |
+| GET    | `/api/logs`          | Recent pipeline events (replay buffer, capped at 200)                                                                                                                                                                                                    |
+| GET    | `/api/prompt`        | The active system prompt (`{ path, content, chars }`)                                                                                                                                                                                                    |
+| PUT    | `/api/prompt`        | Two-step save: `{ content, confirm }` (409 until `confirm: true`); backs up first                                                                                                                                                                        |
+| GET    | `/api/issues`        | Issues list from `issues.json`                                                                                                                                                                                                                           |
+| POST   | `/api/issues`        | Add an issue (validated against the issue schema)                                                                                                                                                                                                        |
+| PUT    | `/api/issues`        | Replace the full issues list (`{ issues: [...] }`, validated)                                                                                                                                                                                            |
+| DELETE | `/api/issues`        | Remove by index (`{ index }`)                                                                                                                                                                                                                            |
+| GET    | `/api/cases`         | Regression cases from `cases.json`                                                                                                                                                                                                                       |
+| GET    | `/api/check`         | Runs `npm run prompt:check` and returns exit code + output lines                                                                                                                                                                                         |
+| GET    | `/api/manual`        | `USER_MANUAL.md` content (rendered in the Manual view)                                                                                                                                                                                                   |
+| GET    | `/api/history`       | Timestamped entries in `prompt-history/` (newest first)                                                                                                                                                                                                  |
+| GET    | `/api/history/:name` | Raw content of one history file                                                                                                                                                                                                                          |
+| POST   | `/api/refine`        | Runs the full refinement pipeline: `{ issuesFile, feedback?, promptContent? }` — `promptContent` overrides the prompt for this run only; streams progress over SSE; returns the report path + candidate path. Refuses (`409`) while a run is in progress |
+| POST   | `/api/promote`       | Two-step promotion: `{ candidatePath, confirm }`; re-runs the static safety scan and refuses unsafe candidates with `409`; backs up the active prompt and writes a promotion audit                                                                       |
 
 All file access is confined to the project root (and history reads to
 `prompt-history/`); path traversal is rejected. Malformed JSON and schema

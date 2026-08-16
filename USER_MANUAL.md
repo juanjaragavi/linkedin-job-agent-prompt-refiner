@@ -58,9 +58,10 @@ inconsistent — fix before continuing.
 npm test
 ```
 
-Expected: `Test Files  2 passed (2)` and `Tests  23 passed (23)` — 16 refiner
+Expected: `Test Files  4 passed (4)` and `Tests  56 passed (56)` — refiner
 unit tests (no LLM calls; the core behaviors are listed below, the additional
-7 cover tolerant response parsing) plus 7 MCP server round-trip tests (§3.6):
+ones cover tolerant response parsing), provider-routing tests, 7 MCP server
+round-trip tests (§3.6), and 17 REST API tests (§4.6):
 
 | #   | Test                                     | What it proves                                                                                                                                       |
 | --- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -183,7 +184,7 @@ Run all of this in order. When everything is green, the project is working:
 | #   | Command                           | Expected result                | If it fails                         |
 | --- | --------------------------------- | ------------------------------ | ----------------------------------- |
 | 1   | `npx tsc --noEmit`                | `TYPECHECK_OK`                 | Type error in source                |
-| 2   | `npm test`                        | 23/23 tests pass               | Broken logic or MCP server          |
+| 2   | `npm test`                        | 56/56 tests pass               | Broken logic or server              |
 | 3   | `npm run prompt:check`            | All PASS, exit 0               | Invalid prompt/issues/cases         |
 | 4   | `npm run prompt:refine` (no args) | Usage error, exit 1            | CLI regression                      |
 | 5   | refine with missing key           | "ANTHROPIC_API_KEY is missing" | Key not set, or config guard broken |
@@ -719,36 +720,58 @@ npm run web:dev     # terminal 2: the GUI on :5173, /api proxied to :3000
 The server's startup lines print to stderr: `[prompt-refiner-web] API + GUI
 listening on http://127.0.0.1:3000`. Open that URL in a browser.
 
-### 4.3 The four views
+### 4.3 The five views
 
-**Dashboard** — the pipeline monitor:
+**Dashboard** — the pipeline monitor and the entry point for a run:
 
+- **Start here — load a prompt** card: upload a `.md` file (drag & drop or
+  browse; only Markdown is accepted) or paste Markdown. The prompt is
+  validated and shown in a small preview before you commit to it. It is used
+  **for this run only** — the active on-file prompt is never overwritten; skip
+  the step and the active prompt is used.
 - _Pipeline status_ card: active-prompt presence/char count, issues on file,
   and the configured model (from `.env`).
 - _Static safety check_ button: runs `npm run prompt:check` through the API and
   shows exit code + output lines.
-- _Run refinement_ card: pick the issues file (default
-  `evaluations/prompt-refinement/issues.json`) and optionally paste human
-  feedback (one item per line, `#` comments ignored). Click **Run refinement**
-  and watch the **live pipeline log** — `load`, `llm`, `evaluator`, `write`,
-  `done` stages stream in over SSE in real time. When the run finishes you see
-  the status badge, the adversarial score before → after, the rationale, and
-  the report path. A promoted run offers **Review candidate & promote →**,
-  which jumps to the History tab.
+- _Run refinement_ card: the prompt-source indicator shows whether the run will
+  use the **active on-file prompt** or a **loaded prompt**; pick the issues
+  file (default `evaluations/prompt-refinement/issues.json`) and optionally
+  paste human feedback (one item per line, `#` comments ignored). Click
+  **Run refinement** and watch the **live pipeline log** — `load`, `llm`,
+  `evaluator`, `write`, `done` stages stream in over SSE in real time. When
+  the run finishes you see the status badge, the adversarial score before →
+  after, the rationale, and the report path. A promoted run offers **Review
+  candidate & promote →**, which jumps to the History tab.
 - The log panel also replays recent events (`GET /api/logs`) when the page
   loads, so a completed run's output is not lost.
 
-**Prompt Editor** — dual-mode Markdown editing of the active prompt:
+**Prompt Editor** — the "Obsidian-lite" manuscript editor for the active
+prompt:
 
-- _Edit + preview_ splits the pane: raw Markdown on the left, a sanitized
-  visual preview on the right (stacked on narrow screens); _Preview only_
-  shows just the rendering. Prompt content is sanitized (scripts, event
-  handlers, `javascript:` URLs stripped) before rendering.
+- _Edit + preview_ splits the pane: syntax-highlighted Markdown source on the
+  left (headings, bold/italic, links, code fences, lists highlighted as you
+  type), a sanitized visual preview on the right; _Preview only_ shows just
+  the rendering. Scroll either pane and the other follows proportionally.
+- **Formatting toolbar** (H1–H3, bold, italic, strikethrough, inline code,
+  lists, quote, link, code block, table, rule) plus keyboard shortcuts
+  (`⌘B` bold, `⌘I` italic, `⌘K` link, ``⌘` `` code, `⌘S` save).
+- **Outline rail** (right): every heading, click to jump. The heading nearest
+  the cursor is auto-highlighted and kept in view as you type.
+- **Find in document** (`⌘F`): highlights matches in **both** panes
+  simultaneously with next/previous navigation (`Enter` / `Shift+Enter`).
+  Whitespace is normalized, so a phrase spanning a line break still matches.
+- **Download .md**: exports the current manuscript as a Markdown file.
+- **Theme toggle** (sidebar): _Day paper_ ↔ _Night manuscript_ (dark ink
+  theme); persists in `localStorage` and respects the OS preference on first
+  load. The whole app — editor, preview, diff, logs — follows the theme.
+- **Draft persistence**: unsaved edits are autosaved to `localStorage` and, on
+  reload, an **Unsaved draft found** banner offers _Restore draft_ or
+  _Discard_ — an interrupted edit is never lost.
 - **Save is two-step**: the first click arms the write (the API answers `409`
   until you confirm), the second **Confirm save (final)** performs it — with
   an automatic backup to `prompt-history/<timestamp>.prompt-edit.backup.md`.
   Reload from disk discards unsaved edits.
-- The right-hand card lists the regression cases from `cases.json` for quick
+- The card below lists the regression cases from `cases.json` for quick
   reference while you edit.
 
 **Issues** — the issue manager:
@@ -774,6 +797,11 @@ listening on http://127.0.0.1:3000`. Open that URL in a browser.
 - A promotion audit shows the timestamp, candidate, backup path, and the
   safety-scan result from the moment of promotion.
 
+**Manual** — the complete user manual rendered in-app: `USER_MANUAL.md` is
+served by the API (`GET /api/manual`) and rendered with a heading table of
+contents. It stays in sync with the file you are reading, so CLI usage,
+MCP operation, and GUI docs live in one place.
+
 ### 4.4 The promotion flow (two-step, safety-gated)
 
 1. Open a **Candidate** entry in History.
@@ -795,23 +823,24 @@ Promotion never happens implicitly — there is no "auto-promote" anywhere in
 
 ### 4.5 REST API reference
 
-| Method | Path                 | Description                                                                                                         |
-| ------ | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/health`        | Service status: prompt presence/chars, issues count, model                                                          |
-| GET    | `/api/events`        | SSE stream of pipeline progress (`load`, `llm`, `evaluator`, `write`, `done`); named events, one per stage          |
-| GET    | `/api/logs`          | Replay of recent events (capped at 200)                                                                             |
-| GET    | `/api/prompt`        | Active prompt: `{ path, content, chars }`                                                                           |
-| PUT    | `/api/prompt`        | Save: `{ content, confirm }` — `409` until `confirm: true`; backs up first                                          |
-| GET    | `/api/issues`        | Issues from `issues.json`                                                                                           |
-| POST   | `/api/issues`        | Add an issue (schema-validated)                                                                                     |
-| PUT    | `/api/issues`        | Replace the list: `{ issues: [...] }` (validated as a whole)                                                        |
-| DELETE | `/api/issues`        | Remove by index: `{ index }`                                                                                        |
-| GET    | `/api/cases`         | Regression cases from `cases.json`                                                                                  |
-| GET    | `/api/check`         | Runs `npm run prompt:check`; returns exit code + lines                                                              |
-| GET    | `/api/history`       | Timestamped `prompt-history/` entries, newest first                                                                 |
-| GET    | `/api/history/:name` | Raw content of one history file                                                                                     |
-| POST   | `/api/refine`        | Full pipeline run: `{ issuesFile, feedback? }`; streams SSE; `409` while a run is active                            |
-| POST   | `/api/promote`       | Two-step promotion: `{ candidatePath, confirm }`; re-scans statically, refuses unsafe with `409`; backs up + audits |
+| Method | Path                 | Description                                                                                                                                                      |
+| ------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/health`        | Service status: prompt presence/chars, issues count, model                                                                                                       |
+| GET    | `/api/events`        | SSE stream of pipeline progress (`load`, `llm`, `evaluator`, `write`, `done`); named events, one per stage                                                       |
+| GET    | `/api/logs`          | Replay of recent events (capped at 200)                                                                                                                          |
+| GET    | `/api/prompt`        | Active prompt: `{ path, content, chars }`                                                                                                                        |
+| PUT    | `/api/prompt`        | Save: `{ content, confirm }` — `409` until `confirm: true`; backs up first                                                                                       |
+| GET    | `/api/issues`        | Issues from `issues.json`                                                                                                                                        |
+| POST   | `/api/issues`        | Add an issue (schema-validated)                                                                                                                                  |
+| PUT    | `/api/issues`        | Replace the list: `{ issues: [...] }` (validated as a whole)                                                                                                     |
+| DELETE | `/api/issues`        | Remove by index: `{ index }`                                                                                                                                     |
+| GET    | `/api/cases`         | Regression cases from `cases.json`                                                                                                                               |
+| GET    | `/api/check`         | Runs `npm run prompt:check`; returns exit code + lines                                                                                                           |
+| GET    | `/api/manual`        | The full `USER_MANUAL.md` (rendered in the Manual view)                                                                                                          |
+| GET    | `/api/history`       | Timestamped `prompt-history/` entries, newest first                                                                                                              |
+| GET    | `/api/history/:name` | Raw content of one history file                                                                                                                                  |
+| POST   | `/api/refine`        | Full pipeline run: `{ issuesFile, feedback?, promptContent? }`; `promptContent` overrides the prompt for this run only; streams SSE; `409` while a run is active |
+| POST   | `/api/promote`       | Two-step promotion: `{ candidatePath, confirm }`; re-scans statically, refuses unsafe with `409`; backs up + audits                                              |
 
 **Failure model.** All file access is confined to the project root (`/api/promote`
 confines candidates to `prompt-history/`, static serving to `web/dist/`); path
@@ -821,10 +850,11 @@ writes to disk on a validation error — the system fails closed.
 
 ### 4.6 Testing the GUI
 
-`npm test` covers the API layer (`src/server/server.test.ts`): health,
-prompt read/save (two-step), issue add/replace/delete, the static check,
-history listing and file reads, the full refine pipeline (with injected fake
-LLMs, streaming progress events), and the promotion gate — including the case
+`npm test` covers the API layer (`src/server/server.test.ts`, 17 tests):
+health, prompt read/save (two-step), issue add/replace/delete, the static
+check, the manual endpoint, history listing and file reads, the full refine
+pipeline — including the `promptContent` override path (with injected fake
+LLMs, streaming progress events) — and the promotion gate, including the case
 where a candidate fails the static safety scan and promotion is refused. Run
 the whole suite with:
 

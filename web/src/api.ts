@@ -56,6 +56,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const getHealth = () => request<HealthStatus>("/api/health");
 export const getModels = () => request<ModelsResponse>("/api/models");
 export const getLogs = () => request<{ events: PipelineEvent[] }>("/api/logs");
+export const getManual = () =>
+  request<{ path: string; content: string; chars: number }>("/api/manual");
 export const getPrompt = () =>
   request<{ path: string; content: string; chars: number }>("/api/prompt");
 export const savePrompt = (content: string, confirm: boolean) =>
@@ -87,6 +89,7 @@ export const startRefine = (
   feedback?: string[],
   refinerModel?: string,
   evaluatorModel?: string,
+  promptContent?: string,
 ) =>
   request<RefineRunResponse>("/api/refine", {
     method: "POST",
@@ -95,6 +98,7 @@ export const startRefine = (
       feedback,
       refinerModel,
       evaluatorModel,
+      promptContent,
     }),
   });
 export const promote = (candidatePath: string, confirm: boolean) =>

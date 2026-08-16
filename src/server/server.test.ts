@@ -108,6 +108,11 @@ describe("prompt-refiner web API", () => {
       JSON.stringify(FAKE_CASES, null, 2),
       "utf8",
     );
+    await writeFile(
+      path.join(tempRoot, "USER_MANUAL.md"),
+      "# Test Manual\n\n## GUI\n\nLoad a prompt, run the pipeline.\n\n## CLI\n\nnpm run prompt:refine\n",
+      "utf8",
+    );
 
     app = createApp({
       projectRoot: tempRoot,
@@ -257,6 +262,115 @@ ${STABLE_TAIL}`,
     const { status, body } = await getJson("/api/history");
     expect(status).toBe(200);
     expect(Array.isArray(body.items)).toBe(true);
+  });
+
+  it("serves the user manual (USER_MANUAL.md) for the in-app Manual page", async () => {
+    const { status, body } = await getJson("/api/manual");
+    expect(status).toBe(200);
+    expect(String(body.content)).toContain("# Test Manual");
+    expect(typeof body.chars).toBe("number");
+  });
+
+  it("refines an uploaded prompt without touching the active prompt file", async () => {
+    await writeFile(
+      path.join(
+        tempRoot,
+        "evaluations",
+        "prompt-refinement",
+        "upload-issues.json",
+      ),
+      JSON.stringify(FAKE_ISSUES, null, 2),
+      "utf8",
+    );
+
+    // A dedicated fake refiner that echoes the prompt it was given, so we can
+    // prove the uploaded content reached the pipeline.
+    const echoRefiner: LlmClient = {
+      async generateText(prompt: string) {
+        const current = (
+          prompt.match(/<current_prompt>([\s\S]*?)<\/current_prompt>/)?.[1] ??
+          ""
+        ).trim();
+        const firstLine = current.split("\n")[0] ?? "";
+        return `## Decision
+PROMOTE
+
+## Patch
++ refined from uploaded
+
+## Revised Prompt
+${firstLine}
+
+Refined from the uploaded prompt.
+
+${STABLE_TAIL}
+
+## Rationale
+- used the uploaded prompt
+
+## Guardrail Check
+- Confirmation: PASS
+- Truthfulness: PASS
+- Security: PASS
+- Platform compliance: PASS
+- Profile source of truth: PASS`;
+      },
+    };
+
+    const uploadApp = createApp({
+      projectRoot: tempRoot,
+      refinerLlm: echoRefiner,
+      evaluatorLlm: fakeEvaluatorLlm,
+    });
+    await uploadApp.start(0);
+    const address = uploadApp.server.address() as AddressInfo;
+    const uploadBase = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const uploaded = `# Uploaded Prompt
+
+A prompt the user pasted into the GUI.
+
+${STABLE_TAIL}
+`;
+      const res = await fetch(`${uploadBase}/api/refine`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          issuesFile: "evaluations/prompt-refinement/upload-issues.json",
+          promptContent: uploaded,
+        }),
+      });
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(res.status).toBe(200);
+      expect(body.status).toBe("promoted");
+
+      const report = JSON.parse(
+        await readFile(body.reportPath as string, "utf8"),
+      ) as { refinedPrompt: string };
+      expect(report.refinedPrompt).toContain("# Uploaded Prompt");
+      expect(report.refinedPrompt).toContain(
+        "Refined from the uploaded prompt",
+      );
+
+      // The on-file active prompt must be untouched.
+      const active = await readFile(
+        path.join(tempRoot, "prompts", "linkedin-job-assistant.system.md"),
+        "utf8",
+      );
+      expect(active).toContain("# Test Prompt");
+    } finally {
+      await uploadApp.stop();
+    }
+  });
+
+  it("rejects an oversized uploaded prompt with a clear error", async () => {
+    const res = await sendJson("POST", "/api/refine", {
+      issuesFile: "evaluations/prompt-refinement/issues.json",
+      promptContent: "x".repeat(200_000),
+    });
+    expect(res.status).toBe(400);
+    expect(String(res.body.error)).toContain("promptContent");
   });
 
   it("runs a refinement pipeline and writes report + candidate", async () => {

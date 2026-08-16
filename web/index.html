@@ -7,7 +7,35 @@
       name="description"
       content="Governance dashboard for the LinkedIn job-assistant prompt refiner"
     />
-    <title>Prompt Refiner — Governance Dashboard</title>
+    <meta name="theme-color" content="#faf7f2" />
+    <script>
+      // Apply the persisted theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var stored = localStorage.getItem("prompt-editor.theme");
+          var dark = stored
+            ? stored === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.setAttribute(
+            "data-theme",
+            dark ? "dark" : "light",
+          );
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.setAttribute("content", dark ? "#171310" : "#faf7f2");
+          }
+        } catch (e) {
+          /* localStorage may be unavailable; default to light */
+        }
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <title>Prompt Refiner — Governance Studio</title>
   </head>
   <body>
     <div id="root"></div>

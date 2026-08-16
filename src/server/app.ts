@@ -231,6 +231,17 @@ export function createApp(deps: ServerDeps = {}): App {
         return;
       }
 
+      if (pathname === "/api/manual" && method === "GET") {
+        const manualPath = path.join(root, "USER_MANUAL.md");
+        const content = await readFile(manualPath, "utf8");
+        sendJson(res, 200, {
+          path: manualPath,
+          content,
+          chars: content.length,
+        });
+        return;
+      }
+
       if (pathname === "/api/prompt" && method === "GET") {
         const promptPath = path.join(
           root,
@@ -465,16 +476,36 @@ export function createApp(deps: ServerDeps = {}): App {
         const raw = await readBody(req);
         const body = parseJsonBody(raw, res);
         if (!body) return;
-        const { issuesFile, feedback, refinerModel, evaluatorModel } = body as {
+        const {
+          issuesFile,
+          feedback,
+          refinerModel,
+          evaluatorModel,
+          promptContent,
+        } = body as {
           issuesFile?: string;
           feedback?: string[];
           refinerModel?: string;
           evaluatorModel?: string;
+          promptContent?: string;
         };
 
         if (typeof issuesFile !== "string" || !issuesFile.endsWith(".json")) {
           sendJson(res, 400, {
             error: "issuesFile must point to a .json file.",
+          });
+          return;
+        }
+
+        const MAX_PROMPT_CONTENT = 150_000;
+        if (
+          promptContent !== undefined &&
+          (typeof promptContent !== "string" ||
+            promptContent.length === 0 ||
+            promptContent.length > MAX_PROMPT_CONTENT)
+        ) {
+          sendJson(res, 400, {
+            error: `promptContent must be a non-empty string up to ${MAX_PROMPT_CONTENT} chars.`,
           });
           return;
         }
@@ -487,6 +518,8 @@ export function createApp(deps: ServerDeps = {}): App {
             root,
             issuesFile: resolvedIssues,
             feedback: Array.isArray(feedback) ? feedback : undefined,
+            promptContent:
+              typeof promptContent === "string" ? promptContent : undefined,
             refinerModel:
               typeof refinerModel === "string" && refinerModel.length > 0
                 ? refinerModel

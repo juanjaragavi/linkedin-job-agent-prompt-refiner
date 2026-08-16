@@ -24,6 +24,8 @@ export interface RefineRunOptions {
   root: string;
   issuesFile: string;
   feedback?: string[];
+  /** In-memory prompt to refine instead of the active prompt file (GUI upload workflow). */
+  promptContent?: string;
   /** Per-run model override (technical ID, e.g. from the GUI dropdown). */
   refinerModel?: string;
   /** Per-run model override (technical ID, e.g. from the GUI dropdown). */
@@ -67,15 +69,21 @@ export async function runRefinePipeline(
   emit(onProgress, "load", "Reading prompt and issues...");
 
   const [currentPrompt, rawIssues] = await Promise.all([
-    readFile(promptPath, "utf8"),
+    options.promptContent !== undefined
+      ? Promise.resolve(options.promptContent)
+      : readFile(promptPath, "utf8"),
     readFile(issuesFile, "utf8"),
   ]);
 
   const issues = JSON.parse(rawIssues) as PromptIssue[];
+  const promptSource =
+    options.promptContent !== undefined
+      ? "uploaded prompt (active file untouched)"
+      : "active prompt";
   emit(
     onProgress,
     "load",
-    `Loaded ${issues.length} issue(s), prompt is ${currentPrompt.length} chars.`,
+    `Loaded ${issues.length} issue(s), ${promptSource} is ${currentPrompt.length} chars.`,
   );
 
   if (feedback?.length) {
