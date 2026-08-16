@@ -1,0 +1,181 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { evaluatePrompt } from "../prompt-refinement/evaluator.js";
+import { createAnthropicClient } from "../prompt-refinement/providers/anthropic.js";
+import { refineLinkedInJobAgentPrompt } from "../prompt-refinement/refiner.js";
+import type {
+  LlmClient,
+  PromptIssue,
+  RefinerResult,
+} from "../prompt-refinement/types.js";
+
+export interface PipelineProgress {
+  stage: string;
+  message: string;
+  at: string;
+}
+
+export interface RefineRunOptions {
+  root: string;
+  issuesFile: string;
+  feedback?: string[];
+  refinerLlm?: LlmClient;
+  evaluatorLlm?: LlmClient;
+  onProgress?: (event: PipelineProgress) => void;
+}
+
+export interface RefineRunResult {
+  result: RefinerResult;
+  reportPath: string;
+  candidatePath?: string;
+}
+
+function emit(
+  onProgress: RefineRunOptions["onProgress"],
+  stage: string,
+  message: string
+): void {
+  onProgress?.({ stage, message, at: new Date().toISOString() });
+}
+
+/**
+ * Runs the same refinement loop as the CLI, but reports each stage through an
+ * `onProgress` callback (used to stream events over SSE) and writes the audit
+ * report to prompt-history/.
+ */
+export async function runRefinePipeline(
+  options: RefineRunOptions
+): Promise<RefineRunResult> {
+  const { root, issuesFile, feedback, onProgress } = options;
+
+  const promptPath = path.join(root, "prompts", "linkedin-job-assistant.system.md");
+  const historyDirectory = path.join(root, "prompt-history");
+
+  emit(onProgress, "load", "Reading prompt and issues...");
+
+  const [currentPrompt, rawIssues] = await Promise.all([
+    readFile(promptPath, "utf8"),
+    readFile(issuesFile, "utf8"),
+  ]);
+
+  const issues = JSON.parse(rawIssues) as PromptIssue[];
+  emit(
+    onProgress,
+    "load",
+    `Loaded ${issues.length} issue(s), prompt is ${currentPrompt.length} chars.`
+  );
+
+  if (feedback?.length) {
+    emit(onProgress, "load", `Loaded ${feedback.length} human feedback item(s).`);
+  }
+
+  const maxCandidateLength = Number(process.env.PROMPT_MAX_LENGTH ?? 50_000);
+
+  const refinerModel = process.env.PROMPT_REFINER_MODEL;
+  const evaluatorModel = process.env.PROMPT_EVALUATOR_MODEL;
+
+  if (!options.refinerLlm && !refinerModel) {
+    throw new Error("PROMPT_REFINER_MODEL must be set in .env.");
+  }
+  if (!options.evaluatorLlm && !evaluatorModel) {
+    throw new Error("PROMPT_EVALUATOR_MODEL must be set in .env.");
+  }
+
+  const refinerLlm =
+    options.refinerLlm ??
+    withProgress(
+      "refiner",
+      createAnthropicClient(refinerModel as string),
+      onProgress
+    );
+  const evaluatorLlm =
+    options.evaluatorLlm ?? createAnthropicClient(evaluatorModel as string);
+
+  const evaluate = async (candidate: string) => {
+    emit(onProgress, "evaluator", "Adversarial evaluation started…");
+    const startedAt = Date.now();
+
+    try {
+      const evaluation = await evaluatePrompt(candidate, evaluatorLlm);
+      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      emit(
+        onProgress,
+        "evaluator",
+        `Evaluation completed in ${seconds}s — score=${evaluation.score} passed=${evaluation.passed}`
+      );
+      return evaluation;
+    } catch (error) {
+      emit(
+        onProgress,
+        "evaluator",
+        `Evaluation FAILED after ${((Date.now() - startedAt) / 1000).toFixed(1)}s — ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      throw error;
+    }
+  };
+
+  const result = await refineLinkedInJobAgentPrompt(
+    {
+      currentPrompt,
+      issues,
+      humanFeedback: feedback,
+      runId: new Date().toISOString(),
+      maxCandidateLength,
+    },
+    refinerLlm,
+    evaluate
+  );
+
+  await mkdir(historyDirectory, { recursive: true });
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const reportPath = path.join(historyDirectory, `${timestamp}.report.json`);
+
+  emit(onProgress, "write", `Writing audit report…`);
+  await writeFile(reportPath, JSON.stringify(result, null, 2), "utf8");
+
+  let candidatePath: string | undefined;
+
+  if (result.status === "promoted") {
+    candidatePath = path.join(historyDirectory, `${timestamp}.candidate.system.md`);
+    await writeFile(candidatePath, result.refinedPrompt, "utf8");
+    emit(onProgress, "write", `Candidate prompt created: ${candidatePath}`);
+  }
+
+  emit(onProgress, "done", `Run finished with status: ${result.status}`);
+
+  return { result, reportPath, candidatePath };
+}
+
+/** Wraps an LLM client so each request reports start/completion/failure. */
+export function withProgress(
+  label: string,
+  llm: LlmClient,
+  onProgress: RefineRunOptions["onProgress"]
+): LlmClient {
+  return {
+    async generateText(prompt: string): Promise<string> {
+      emit(onProgress, "llm", `[${label}] request started — ${new Date().toISOString()}`);
+      const startedAt = Date.now();
+
+      try {
+        const text = await llm.generateText(prompt);
+        const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+        emit(onProgress, "llm", `[${label}] completed in ${seconds}s`);
+        return text;
+      } catch (error) {
+        const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+        emit(
+          onProgress,
+          "llm",
+          `[${label}] FAILED after ${seconds}s — ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        throw error;
+      }
+    },
+  };
+}

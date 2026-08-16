@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "prompt-refiner": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp-server/index.ts"],
+      "type": "stdio",
+      "description": "Prompt refiner autonomy: file read/write/edit (project-confined), approval-gated shell/SSH command execution with audit log, and the app's own operations (prompt check, tests, typecheck, refine)."
+    }
+  }
+}
