@@ -9,19 +9,19 @@ const projectRoot = fileURLToPath(new URL("../../", import.meta.url));
 const promptPath = path.join(
   projectRoot,
   "prompts",
-  "linkedin-job-assistant.system.md"
+  "linkedin-job-assistant.system.md",
 );
 const issuesPath = path.join(
   projectRoot,
   "evaluations",
   "prompt-refinement",
-  "issues.json"
+  "issues.json",
 );
 const casesPath = path.join(
   projectRoot,
   "evaluations",
   "prompt-refinement",
-  "cases.json"
+  "cases.json",
 );
 const maxLength = Number(process.env.PROMPT_MAX_LENGTH ?? 50_000);
 
@@ -44,7 +44,7 @@ const failures: string[] = [];
 
 function report(name: string, ok: boolean, detail = ""): void {
   console.log(
-    `${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`
+    `${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`,
   );
   if (!ok) {
     failures.push(name);
@@ -58,16 +58,16 @@ try {
 
   report(
     "system prompt is the real prompt (not the placeholder)",
-    !prompt.includes("TODO: Paste Juan's complete LinkedIn Assistant system prompt"),
-    prompt.trim().length > 0
-      ? `${prompt.trim().length} chars`
-      : ""
+    !prompt.includes(
+      "TODO: Paste Juan's complete LinkedIn Assistant system prompt",
+    ),
+    prompt.trim().length > 0 ? `${prompt.trim().length} chars` : "",
   );
 
   report(
     "system prompt within length limit",
     prompt.length <= maxLength,
-    `${prompt.length}/${maxLength} chars`
+    `${prompt.length}/${maxLength} chars`,
   );
 
   for (const reason of detectUnsafeCandidate(prompt)) {
@@ -80,7 +80,7 @@ try {
 // --- Verified issues -----------------------------------------------------
 try {
   const issues = JSON.parse(
-    await readFile(issuesPath, "utf8")
+    await readFile(issuesPath, "utf8"),
   ) as PromptIssue[];
 
   report("issues.json parses", true, `${issues.length} issue(s)`);
@@ -94,7 +94,7 @@ try {
     report(
       `issue ${index + 1} schema`,
       validCategory && validSeverity && hasEvidence && hasExpected,
-      `category=${issue.category} severity=${issue.severity}`
+      `category=${issue.category} severity=${issue.severity}`,
     );
   });
 } catch (error) {
@@ -116,10 +116,10 @@ try {
       `case ${index + 1} schema`,
       Boolean(
         testCase.id?.trim() &&
-          testCase.scenario?.trim() &&
-          testCase.expected?.trim()
+        testCase.scenario?.trim() &&
+        testCase.expected?.trim(),
       ),
-      testCase.id
+      testCase.id,
     );
   });
 } catch (error) {
@@ -129,7 +129,7 @@ try {
 console.log(
   failures.length === 0
     ? "\nAll checks passed."
-    : `\n${failures.length} check(s) failed.`
+    : `\n${failures.length} check(s) failed.`,
 );
 
 process.exit(failures.length === 0 ? 0 : 1);

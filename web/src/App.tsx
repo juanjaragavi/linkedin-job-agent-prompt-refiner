@@ -38,7 +38,8 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <h1>
-            Prompt Refiner <span className="brand-sub">Governance Dashboard</span>
+            Prompt Refiner{" "}
+            <span className="brand-sub">Governance Dashboard</span>
           </h1>
         </div>
         <nav className="tabs" aria-label="Primary navigation">

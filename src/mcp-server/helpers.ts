@@ -45,7 +45,7 @@ export function resolveInProject(inputPath: string): string {
 export async function runProcess(
   command: string,
   cwd: string,
-  timeoutMs = 300_000
+  timeoutMs = 300_000,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     exec(
@@ -60,7 +60,7 @@ export async function runProcess(
         const exitCode =
           error && typeof error.code === "number" ? error.code : error ? 1 : 0;
         resolve({ stdout, stderr, exitCode });
-      }
+      },
     );
   });
 }

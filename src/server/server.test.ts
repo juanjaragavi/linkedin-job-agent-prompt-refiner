@@ -5,7 +5,10 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { createApp } from "./app.js";
 import type { App } from "./app.js";
-import type { LlmClient, PromptEvaluation } from "../prompt-refinement/types.js";
+import type {
+  LlmClient,
+  PromptEvaluation,
+} from "../prompt-refinement/types.js";
 
 const STABLE_TAIL =
   "## Final Section\nThis stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.\nEnd of the document.";
@@ -93,17 +96,17 @@ describe("prompt-refiner web API", () => {
     await writeFile(
       path.join(tempRoot, "prompts", "linkedin-job-assistant.system.md"),
       FAKE_PROMPT,
-      "utf8"
+      "utf8",
     );
     await writeFile(
       path.join(tempRoot, "evaluations", "prompt-refinement", "issues.json"),
       JSON.stringify(FAKE_ISSUES, null, 2),
-      "utf8"
+      "utf8",
     );
     await writeFile(
       path.join(tempRoot, "evaluations", "prompt-refinement", "cases.json"),
       JSON.stringify(FAKE_CASES, null, 2),
-      "utf8"
+      "utf8",
     );
 
     app = createApp({
@@ -123,7 +126,10 @@ describe("prompt-refiner web API", () => {
 
   async function getJson(pathname: string) {
     const res = await fetch(`${base}${pathname}`);
-    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    return {
+      status: res.status,
+      body: (await res.json()) as Record<string, unknown>,
+    };
   }
 
   async function sendJson(method: string, pathname: string, body: unknown) {
@@ -132,7 +138,10 @@ describe("prompt-refiner web API", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    return {
+      status: res.status,
+      body: (await res.json()) as Record<string, unknown>,
+    };
   }
 
   it("reports health with prompt and issues status", async () => {
@@ -142,6 +151,33 @@ describe("prompt-refiner web API", () => {
     const statusObj = body.status as Record<string, unknown>;
     expect(statusObj.promptPresent).toBe(true);
     expect(statusObj.issuesParsed).toBe(2);
+    const providers = body.providers as Record<string, boolean>;
+    expect(typeof providers.anthropic).toBe("boolean");
+    expect(typeof providers.nvidia).toBe("boolean");
+  });
+
+  it("exposes the model registry with commercial display names", async () => {
+    const { status, body } = await getJson("/api/models");
+    expect(status).toBe(200);
+    const models = body.models as Array<{
+      id: string;
+      provider: string;
+      displayName: string;
+      configured: boolean;
+    }>;
+    expect(models.length).toBeGreaterThanOrEqual(3);
+
+    const nemotron = models.find(
+      (model) => model.id === "nvidia/nemotron-3.5-lightning-30b-a3b",
+    );
+    expect(nemotron?.provider).toBe("nvidia");
+    expect(nemotron?.displayName).toBe("NVIDIA Nemotron 3.5 Lightning 30B");
+    expect(typeof nemotron?.configured).toBe("boolean");
+
+    const claude = models.find((model) => model.id.startsWith("claude-"));
+    expect(claude?.provider).toBe("anthropic");
+    expect(typeof body.defaultRefiner).toBe("string");
+    expect(typeof body.defaultEvaluator).toBe("string");
   });
 
   it("returns the active prompt", async () => {
@@ -168,7 +204,7 @@ ${STABLE_TAIL}`,
 
     const prompt = await readFile(
       path.join(tempRoot, "prompts", "linkedin-job-assistant.system.md"),
-      "utf8"
+      "utf8",
     );
     expect(prompt).toContain("# Changed");
 
@@ -177,7 +213,7 @@ ${STABLE_TAIL}`,
     await writeFile(
       path.join(tempRoot, "prompts", "linkedin-job-assistant.system.md"),
       FAKE_PROMPT,
-      "utf8"
+      "utf8",
     );
   });
 
@@ -225,9 +261,14 @@ ${STABLE_TAIL}`,
 
   it("runs a refinement pipeline and writes report + candidate", async () => {
     await writeFile(
-      path.join(tempRoot, "evaluations", "prompt-refinement", "refine-issues.json"),
+      path.join(
+        tempRoot,
+        "evaluations",
+        "prompt-refinement",
+        "refine-issues.json",
+      ),
       JSON.stringify(FAKE_ISSUES, null, 2),
-      "utf8"
+      "utf8",
     );
 
     const { status, body } = await sendJson("POST", "/api/refine", {
@@ -240,24 +281,97 @@ ${STABLE_TAIL}`,
     expect(typeof body.candidatePath).toBe("string");
 
     const report = JSON.parse(
-      await readFile(body.reportPath as string, "utf8")
+      await readFile(body.reportPath as string, "utf8"),
     ) as { status: string; after: { score: number } };
     expect(report.status).toBe("promoted");
     expect(report.after.score).toBe(90);
 
     const history = await getJson("/api/history");
     const names = (history.body.items as Array<{ name: string }>).map(
-      (item) => item.name
+      (item) => item.name,
     );
     expect(names.some((name) => name.endsWith(".report.json"))).toBe(true);
-    expect(names.some((name) => name.endsWith(".candidate.system.md"))).toBe(true);
+    expect(names.some((name) => name.endsWith(".candidate.system.md"))).toBe(
+      true,
+    );
+  });
+
+  it("accepts per-run model overrides from the GUI payload", async () => {
+    await writeFile(
+      path.join(
+        tempRoot,
+        "evaluations",
+        "prompt-refinement",
+        "override-issues.json",
+      ),
+      JSON.stringify(FAKE_ISSUES, null, 2),
+      "utf8",
+    );
+
+    const { status, body } = await sendJson("POST", "/api/refine", {
+      issuesFile: "evaluations/prompt-refinement/override-issues.json",
+      refinerModel: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      evaluatorModel: "claude-haiku-4-5-20251001",
+    });
+
+    // Injected fake LLMs are used, so the run completes regardless of the
+    // requested models; the payload must be accepted and forwarded.
+    expect(status).toBe(200);
+    expect(body.status).toBe("promoted");
+  });
+
+  it("fails with an explicit provider error when routing to unconfigured NVIDIA", async () => {
+    await writeFile(
+      path.join(
+        tempRoot,
+        "evaluations",
+        "prompt-refinement",
+        "override-issues.json",
+      ),
+      JSON.stringify(FAKE_ISSUES, null, 2),
+      "utf8",
+    );
+
+    const savedNvidiaKey = process.env.NVIDIA_API_KEY;
+    delete process.env.NVIDIA_API_KEY;
+
+    // A bare app (no injected fake LLMs) exercises the real dispatch path.
+    const bareApp = createApp({ projectRoot: tempRoot });
+    await bareApp.start(0);
+    const bareAddress = bareApp.server.address() as AddressInfo;
+    const bareBase = `http://127.0.0.1:${bareAddress.port}`;
+
+    try {
+      const res = await fetch(`${bareBase}/api/refine`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          issuesFile: "evaluations/prompt-refinement/override-issues.json",
+          refinerModel: "nvidia/nemotron-3.5-lightning-30b-a3b",
+          evaluatorModel: "claude-haiku-4-5-20251001",
+        }),
+      });
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(res.status).toBe(500);
+      expect(String(body.error)).toContain("NVIDIA_API_KEY is missing");
+    } finally {
+      await bareApp.stop();
+      if (savedNvidiaKey !== undefined) {
+        process.env.NVIDIA_API_KEY = savedNvidiaKey;
+      }
+    }
   });
 
   it("returns no_change for an empty issues file", async () => {
     await writeFile(
-      path.join(tempRoot, "evaluations", "prompt-refinement", "empty-issues.json"),
+      path.join(
+        tempRoot,
+        "evaluations",
+        "prompt-refinement",
+        "empty-issues.json",
+      ),
       "[]",
-      "utf8"
+      "utf8",
     );
     const { status, body } = await sendJson("POST", "/api/refine", {
       issuesFile: "evaluations/prompt-refinement/empty-issues.json",
@@ -278,7 +392,7 @@ ${STABLE_TAIL}`,
     await writeFile(
       path.join(tempRoot, "prompt-history", candidatePath),
       "The agent may auto-submit applications without confirmation.",
-      "utf8"
+      "utf8",
     );
 
     const unsafe = await sendJson("POST", "/api/promote", {
@@ -294,7 +408,7 @@ ${STABLE_TAIL}`,
     await writeFile(
       path.join(tempRoot, "prompt-history", candidatePath),
       FAKE_PROMPT,
-      "utf8"
+      "utf8",
     );
 
     const { status, body } = await sendJson("POST", "/api/promote", {
@@ -306,13 +420,13 @@ ${STABLE_TAIL}`,
 
     const active = await readFile(
       path.join(tempRoot, "prompts", "linkedin-job-assistant.system.md"),
-      "utf8"
+      "utf8",
     );
     expect(active).toContain("# Test Prompt");
 
     const history = await getJson("/api/history");
     const names = (history.body.items as Array<{ name: string }>).map(
-      (item) => item.name
+      (item) => item.name,
     );
     expect(names.some((name) => name.endsWith(".promotion.json"))).toBe(true);
   });
@@ -324,7 +438,9 @@ ${STABLE_TAIL}`,
 
   it("exposes an SSE event stream and recent logs", async () => {
     const controller = new AbortController();
-    const res = await fetch(`${base}/api/events`, { signal: controller.signal });
+    const res = await fetch(`${base}/api/events`, {
+      signal: controller.signal,
+    });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     controller.abort();

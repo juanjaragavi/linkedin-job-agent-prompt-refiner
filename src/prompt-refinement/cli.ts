@@ -3,7 +3,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluatePrompt } from "./evaluator.js";
-import { createAnthropicClient } from "./providers/anthropic.js";
+import {
+  MODEL_REGISTRY,
+  createLlmClient,
+  isProviderConfigured,
+  resolveModelDefinition,
+} from "./providers/provider.js";
+import type { ModelProvider } from "./providers/provider.js";
 import { refineLinkedInJobAgentPrompt } from "./refiner.js";
 import type { LlmClient, PromptIssue } from "./types.js";
 
@@ -27,7 +33,7 @@ function withProgress(label: string, llm: LlmClient): LlmClient {
         console.error(
           `[${label}] FAILED after ${seconds}s — ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
         throw error;
       }
@@ -39,7 +45,7 @@ const projectRoot = fileURLToPath(new URL("../../", import.meta.url));
 const promptPath = path.join(
   projectRoot,
   "prompts",
-  "linkedin-job-assistant.system.md"
+  "linkedin-job-assistant.system.md",
 );
 const historyDirectory = path.join(projectRoot, "prompt-history");
 const issuesArgument = process.argv[2];
@@ -48,13 +54,41 @@ const maxCandidateLength = Number(process.env.PROMPT_MAX_LENGTH ?? 50_000);
 
 if (!issuesArgument) {
   throw new Error(
-    "Usage: npm run prompt:refine -- evaluations/prompt-refinement/issues.json"
+    "Usage: npm run prompt:refine -- evaluations/prompt-refinement/issues.json",
   );
 }
 
 const issuesPath = path.resolve(projectRoot, issuesArgument);
 const refinerModel = process.env.PROMPT_REFINER_MODEL;
 const evaluatorModel = process.env.PROMPT_EVALUATOR_MODEL;
+
+/**
+ * Provider for a role. Registry models always use their registry provider
+ * (an nvidia/* model ID routes to NVIDIA no matter what PROMPT_*_PROVIDER
+ * says — a stray env default would otherwise 404 the model against the wrong
+ * API). The explicit PROMPT_*_PROVIDER env only applies to custom model IDs
+ * that are not in the registry.
+ */
+function roleProvider(
+  role: "REFINER" | "EVALUATOR",
+  model: string | undefined,
+): ModelProvider {
+  const id = model ?? "";
+  const definition = resolveModelDefinition(id);
+  const inRegistry = MODEL_REGISTRY.some((entry) => entry.id === id);
+
+  if (inRegistry) {
+    return definition.provider;
+  }
+
+  const explicit = process.env[`PROMPT_${role}_PROVIDER`];
+  return explicit === "nvidia" || explicit === "anthropic"
+    ? explicit
+    : definition.provider;
+}
+
+const refinerProvider = roleProvider("REFINER", refinerModel);
+const evaluatorProvider = roleProvider("EVALUATOR", evaluatorModel);
 
 console.log("=== Prompt Refiner ===");
 console.log(`Active prompt:  ${promptPath}`);
@@ -63,12 +97,24 @@ console.log(`Max candidate:  ${maxCandidateLength} chars`);
 
 if (!refinerModel || !evaluatorModel) {
   throw new Error(
-    "PROMPT_REFINER_MODEL and PROMPT_EVALUATOR_MODEL must be set in .env."
+    "PROMPT_REFINER_MODEL and PROMPT_EVALUATOR_MODEL must be set in .env.",
   );
 }
 
-console.log(`Refiner model:  ${refinerModel}`);
-console.log(`Evaluator model: ${evaluatorModel}`);
+const refinerDef = resolveModelDefinition(refinerModel);
+const evaluatorDef = resolveModelDefinition(evaluatorModel);
+
+console.log(`Refiner model:  ${refinerModel} (${refinerProvider})`);
+console.log(`Evaluator model: ${evaluatorModel} (${evaluatorProvider})`);
+
+for (const provider of ["anthropic", "nvidia"] as const) {
+  if (!isProviderConfigured(provider)) {
+    console.warn(
+      `  note: ${provider === "nvidia" ? "NVIDIA_API_KEY" : "ANTHROPIC_API_KEY"} is not set — ${provider} models are unavailable.`,
+    );
+  }
+}
+
 console.log("");
 
 console.log("Reading prompt and issues...");
@@ -78,7 +124,9 @@ const [currentPrompt, rawIssues] = await Promise.all([
 ]);
 
 const issues = JSON.parse(rawIssues) as PromptIssue[];
-console.log(`Loaded ${issues.length} issue(s), prompt is ${currentPrompt.length} chars.`);
+console.log(
+  `Loaded ${issues.length} issue(s), prompt is ${currentPrompt.length} chars.`,
+);
 
 // Optional: evaluations/prompt-refinement/feedback.txt — one line per item,
 // "#" comments ignored. Used when Juan requests a narrow behavioral
@@ -88,7 +136,7 @@ let humanFeedback: string[] | undefined;
 try {
   const feedbackText = await readFile(
     path.join(projectRoot, "evaluations", "prompt-refinement", "feedback.txt"),
-    "utf8"
+    "utf8",
   );
 
   const lines = feedbackText
@@ -109,9 +157,9 @@ if (humanFeedback?.length) {
 
 const refinerLlm = withProgress(
   "refiner",
-  createAnthropicClient(refinerModel)
+  createLlmClient(refinerModel, refinerProvider),
 );
-const evaluatorLlm = createAnthropicClient(evaluatorModel);
+const evaluatorLlm = createLlmClient(evaluatorModel, evaluatorProvider);
 
 // The refiner always runs a baseline adversarial evaluation of the current
 // prompt (for the report's `before`), so the API key is required even on the
@@ -124,7 +172,7 @@ const evaluate = async (candidate: string) => {
     const evaluation = await evaluatePrompt(candidate, evaluatorLlm);
     const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
-      `[evaluator] completed in ${seconds}s — score=${evaluation.score} passed=${evaluation.passed}`
+      `[evaluator] completed in ${seconds}s — score=${evaluation.score} passed=${evaluation.passed}`,
     );
     return evaluation;
   } catch (error) {
@@ -132,7 +180,7 @@ const evaluate = async (candidate: string) => {
     console.error(
       `[evaluator] FAILED after ${seconds}s — ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
     );
     throw error;
   }
@@ -147,7 +195,7 @@ const result = await refineLinkedInJobAgentPrompt(
     maxCandidateLength,
   },
   refinerLlm,
-  evaluate
+  evaluate,
 );
 
 await mkdir(historyDirectory, { recursive: true });
@@ -162,7 +210,7 @@ console.log("Audit report written.");
 if (result.status === "promoted") {
   const candidatePath = path.join(
     historyDirectory,
-    `${timestamp}.candidate.system.md`
+    `${timestamp}.candidate.system.md`,
   );
 
   await writeFile(candidatePath, result.refinedPrompt, "utf8");
@@ -181,7 +229,7 @@ if (result.status === "rejected") {
   }
   if (result.refinerResponse) {
     console.log(
-      "  (The refiner's raw response is stored under refinerResponse in the report for diagnosis.)"
+      "  (The refiner's raw response is stored under refinerResponse in the report for diagnosis.)",
     );
   }
 }

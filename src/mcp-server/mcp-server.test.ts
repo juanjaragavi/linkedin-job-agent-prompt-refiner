@@ -12,8 +12,9 @@ function extractText(result: unknown): string {
     return "";
   }
 
-  const content = (result as { content?: Array<{ type?: string; text?: string }> })
-    .content;
+  const content = (
+    result as { content?: Array<{ type?: string; text?: string }> }
+  ).content;
 
   return (content ?? [])
     .filter((block) => block?.type === "text")
@@ -135,13 +136,16 @@ describe("prompt-refiner MCP server", () => {
 
     const audit = await readFile(
       path.join(projectRoot, "logs", "mcp-commands.log"),
-      "utf8"
+      "utf8",
     );
     expect(audit).toContain("echo hello-mcp-approved");
   });
 
   it("runs the offline prompt check", async () => {
-    const result = await client.callTool({ name: "prompt_check", arguments: {} });
+    const result = await client.callTool({
+      name: "prompt_check",
+      arguments: {},
+    });
 
     const text = extractText(result);
     expect(text).toContain("All checks passed.");

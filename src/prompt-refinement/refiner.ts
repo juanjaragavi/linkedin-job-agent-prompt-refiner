@@ -38,11 +38,11 @@ function stripFences(value: string): string {
 export function section(
   response: string,
   heading: string,
-  nextHeading: string
+  nextHeading: string,
 ): string {
   const pattern = new RegExp(
     `## ${heading}\\s*\\n([\\s\\S]*?)\\n## ${nextHeading}`,
-    "i"
+    "i",
   );
 
   const matched = response.match(pattern);
@@ -51,7 +51,7 @@ export function section(
   }
 
   const open = response.match(
-    new RegExp(`## ${heading}\\s*\\n([\\s\\S]*)$`, "i")
+    new RegExp(`## ${heading}\\s*\\n([\\s\\S]*)$`, "i"),
   );
 
   return stripFences(open?.[1] ?? "");
@@ -103,7 +103,7 @@ function isNegatedClause(prompt: string, index: number): boolean {
     prompt.lastIndexOf(".", index - 1),
     prompt.lastIndexOf("!", index - 1),
     prompt.lastIndexOf("?", index - 1),
-    prompt.lastIndexOf("\n", index - 1)
+    prompt.lastIndexOf("\n", index - 1),
   );
 
   return NEGATION_TOKENS.test(prompt.slice(sentenceStart + 1, index));
@@ -126,8 +126,7 @@ function matchesNegationAware(pattern: RegExp, prompt: string): boolean {
 
   while ((match = regex.exec(prompt)) !== null) {
     const isProhibition =
-      isNegatedClause(prompt, match.index) ||
-      isGerundForm(prompt, match.index);
+      isNegatedClause(prompt, match.index) || isGerundForm(prompt, match.index);
 
     if (!isProhibition) {
       return true;
@@ -162,10 +161,29 @@ export function detectUnsafeCandidate(prompt: string): string[] {
     .map(([, reason]) => reason);
 }
 
+/**
+ * Cleans a parsed `## Revised Prompt` section. Models occasionally echo the
+ * request template and wrap the revised prompt in `<current_prompt>` …
+ * `</current_prompt>` tags (or a bare code fence); the content inside is the
+ * real candidate, so the wrapper must not fail the integrity gate. A trailing
+ * horizontal rule (`---`) is also stripped: NVIDIA models echo the document's
+ * section separators and append one after the final section, which is not
+ * part of the prompt content.
+ */
+function cleanRevisedPrompt(raw: string): string {
+  return raw
+    .replace(/^\s*<current_prompt>\s*/i, "")
+    .replace(/\s*<\/current_prompt>\s*$/i, "")
+    .replace(/^```\w*\s*/, "")
+    .replace(/\s*```\s*$/, "")
+    .replace(/\s*(?:---|\*\*\*|___)\s*$/, "")
+    .trim();
+}
+
 export async function refineLinkedInJobAgentPrompt(
   input: RefinerInput,
   refinerLlm: LlmClient,
-  evaluate: (candidate: string) => Promise<PromptEvaluation>
+  evaluate: (candidate: string) => Promise<PromptEvaluation>,
 ): Promise<RefinerResult> {
   const before = await evaluate(input.currentPrompt);
 
@@ -199,7 +217,7 @@ export async function refineLinkedInJobAgentPrompt(
         issue.suggestedFix ? `Suggested fix: ${issue.suggestedFix}` : "",
       ]
         .filter(Boolean)
-        .join("\n")
+        .join("\n"),
     )
     .join("\n\n");
 
@@ -232,8 +250,10 @@ PROMOTE | REJECT | NO_CHANGE
 A concise unified-diff-like patch.
 
 ## Revised Prompt
-The complete revised prompt. If the decision is REJECT or NO_CHANGE, reproduce the
-current prompt exactly.
+The ENTIRE revised prompt with the patch applied — every section, verbatim, including
+sections you did not modify. Never summarize, never write "unchanged", never reference
+the Patch above, never use ellipses or omit content. If the decision is REJECT or
+NO_CHANGE, reproduce the current prompt exactly.
 
 ## Rationale
 - One concise evidence-based reason for each change.
@@ -254,7 +274,9 @@ ${input.currentPrompt}
   const response = await refinerLlm.generateText(request);
   const decision = extractDecision(response);
   const patch = section(response, "Patch", "Revised Prompt");
-  const refinedPrompt = section(response, "Revised Prompt", "Rationale");
+  const refinedPrompt = cleanRevisedPrompt(
+    section(response, "Revised Prompt", "Rationale"),
+  );
   const rationale = section(response, "Rationale", "Guardrail Check")
     .split("\n")
     .map((line) => line.replace(/^- /, "").trim())
@@ -283,9 +305,17 @@ ${input.currentPrompt}
   // Integrity gate: a minimal revision reproduces the full current prompt, so
   // its ending must match. A mismatch means the response was truncated (e.g.
   // hit the token limit) or the model dropped content — reject rather than
-  // promote a corrupted candidate.
-  const currentTail = input.currentPrompt.trimEnd().slice(-80);
-  if (refinedPrompt.trimEnd().slice(-80) !== currentTail) {
+  // promote a corrupted candidate. Whitespace is normalized before comparing:
+  // models reflow soft-wrapped lines, so exact string equality would reject
+  // complete candidates over a line-wrap difference.
+  const normalizeWhitespace = (value: string): string =>
+    value.replace(/\s+/g, " ");
+  const currentTail = normalizeWhitespace(input.currentPrompt.trimEnd()).slice(
+    -120,
+  );
+  if (
+    normalizeWhitespace(refinedPrompt.trimEnd()).slice(-120) !== currentTail
+  ) {
     return {
       status: "rejected",
       refinedPrompt: input.currentPrompt,
@@ -370,7 +400,7 @@ ${input.currentPrompt}
       runId: input.runId,
       createdAt: new Date().toISOString(),
       issuesAddressed: input.issues.map(
-        (issue) => `${issue.category}: ${issue.expectedBehavior}`
+        (issue) => `${issue.category}: ${issue.expectedBehavior}`,
       ),
     },
     refinerResponse: response,

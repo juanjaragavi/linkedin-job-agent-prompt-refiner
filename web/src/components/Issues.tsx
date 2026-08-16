@@ -24,7 +24,9 @@ export default function Issues() {
   const [issues, setIssues] = useState<PromptIssue[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState<IssueCategory | "all">("all");
+  const [categoryFilter, setCategoryFilter] = useState<IssueCategory | "all">(
+    "all",
+  );
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all");
   const [form, setForm] = useState(EMPTY_FORM);
 
@@ -44,14 +46,16 @@ export default function Issues() {
   const visible = issues
     .map((issue, index) => ({ issue, index }))
     .filter(({ issue }) => {
-      if (categoryFilter !== "all" && issue.category !== categoryFilter) return false;
-      if (severityFilter !== "all" && issue.severity !== severityFilter) return false;
+      if (categoryFilter !== "all" && issue.category !== categoryFilter)
+        return false;
+      if (severityFilter !== "all" && issue.severity !== severityFilter)
+        return false;
       return true;
     });
 
   const set = <K extends keyof typeof EMPTY_FORM>(
     key: K,
-    value: (typeof EMPTY_FORM)[K]
+    value: (typeof EMPTY_FORM)[K],
   ): void => setForm((prev) => ({ ...prev, [key]: value }));
 
   const handleSubmit = async (event: FormEvent): Promise<void> => {
@@ -103,7 +107,10 @@ export default function Issues() {
     <div className="grid">
       <section className="card" aria-labelledby="add-title">
         <h2 id="add-title">Add verified issue</h2>
-        <form className="issue-form" onSubmit={(event) => void handleSubmit(event)}>
+        <form
+          className="issue-form"
+          onSubmit={(event) => void handleSubmit(event)}
+        >
           <div className="form-row">
             <label className="field">
               <span className="label-text">Category</span>

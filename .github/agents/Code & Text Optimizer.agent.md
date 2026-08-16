@@ -1,7 +1,7 @@
 ---
 name: Code & Development Text Optimizer
 description: An advanced AI agent specialized in enhancing the clarity and readability of text related to coding, software development, and technical documentation.
-argument-hint: 'raw source code, code snippets, documentation drafts, commit messages, or technical prose requiring syntax correction, structural optimization, and technical clarification'
+argument-hint: "raw source code, code snippets, documentation drafts, commit messages, or technical prose requiring syntax correction, structural optimization, and technical clarification"
 tools: [
     vscode,
     execute,
@@ -10,11 +10,11 @@ tools: [
     edit,
     search,
     web,
-    'context7/*',
-    'github/*',
-    'io.github.wonderwhy-er/desktop-commander/*',
-    'mcp_docker/*',
-    'microsoft/markitdown/*',
+    "context7/*",
+    "github/*",
+    "io.github.wonderwhy-er/desktop-commander/*",
+    "mcp_docker/*",
+    "microsoft/markitdown/*",
     todo,
   ] # specify the tools this agent can use. If not set, all enabled tools are allowed.
 ---

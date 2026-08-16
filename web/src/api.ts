@@ -2,6 +2,7 @@ import type {
   CheckResult,
   HealthStatus,
   HistoryItem,
+  ModelsResponse,
   PipelineEvent,
   PromoteResponse,
   PromptIssue,
@@ -13,7 +14,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly body: unknown
+    public readonly body: unknown,
   ) {
     super(message);
     this.name = "ApiError";
@@ -53,8 +54,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const getHealth = () => request<HealthStatus>("/api/health");
-export const getLogs = () =>
-  request<{ events: PipelineEvent[] }>("/api/logs");
+export const getModels = () => request<ModelsResponse>("/api/models");
+export const getLogs = () => request<{ events: PipelineEvent[] }>("/api/logs");
 export const getPrompt = () =>
   request<{ path: string; content: string; chars: number }>("/api/prompt");
 export const savePrompt = (content: string, confirm: boolean) =>
@@ -81,10 +82,20 @@ export const getHistory = () =>
   request<{ items: HistoryItem[] }>("/api/history");
 export const getHistoryFile = (name: string) =>
   request<string>(`/api/history/${encodeURIComponent(name)}`);
-export const startRefine = (issuesFile: string, feedback?: string[]) =>
+export const startRefine = (
+  issuesFile: string,
+  feedback?: string[],
+  refinerModel?: string,
+  evaluatorModel?: string,
+) =>
   request<RefineRunResponse>("/api/refine", {
     method: "POST",
-    body: JSON.stringify({ issuesFile, feedback }),
+    body: JSON.stringify({
+      issuesFile,
+      feedback,
+      refinerModel,
+      evaluatorModel,
+    }),
   });
 export const promote = (candidatePath: string, confirm: boolean) =>
   request<PromoteResponse>("/api/promote", {
@@ -102,7 +113,7 @@ const EVENT_STAGES = ["load", "llm", "evaluator", "write", "done", "error"];
  */
 export function subscribePipeline(
   onEvent: (event: PipelineEvent) => void,
-  onError?: () => void
+  onError?: () => void,
 ): () => void {
   const source = new EventSource("/api/events");
   const handlers = new Map<string, (msg: MessageEvent<string>) => void>();

@@ -13,9 +13,7 @@ function envNumber(name: string, fallback: number): number {
 
 function extractText(message: Anthropic.Message): string {
   return message.content
-    .filter(
-      (block): block is Anthropic.TextBlock => block.type === "text"
-    )
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text)
     .join("\n")
     .trim();
@@ -24,7 +22,7 @@ function extractText(message: Anthropic.Message): string {
 export function createAnthropicClient(model: string): LlmClient {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error(
-      "ANTHROPIC_API_KEY is missing. Add it to .env before running this command."
+      "ANTHROPIC_API_KEY is missing. Add it to .env before running this command.",
     );
   }
 
@@ -68,7 +66,7 @@ export function createAnthropicClient(model: string): LlmClient {
       } catch (error) {
         if (error instanceof Anthropic.APIError) {
           throw new Error(
-            `Anthropic API error: status=${error.status}, name=${error.name}, message=${error.message}`
+            `Anthropic API error: status=${error.status}, name=${error.name}, message=${error.message}`,
           );
         }
 

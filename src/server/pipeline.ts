@@ -1,7 +1,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { evaluatePrompt } from "../prompt-refinement/evaluator.js";
-import { createAnthropicClient } from "../prompt-refinement/providers/anthropic.js";
+import {
+  MODEL_REGISTRY,
+  createLlmClient,
+  resolveModelDefinition,
+} from "../prompt-refinement/providers/provider.js";
+import type { ModelProvider } from "../prompt-refinement/providers/provider.js";
 import { refineLinkedInJobAgentPrompt } from "../prompt-refinement/refiner.js";
 import type {
   LlmClient,
@@ -19,6 +24,10 @@ export interface RefineRunOptions {
   root: string;
   issuesFile: string;
   feedback?: string[];
+  /** Per-run model override (technical ID, e.g. from the GUI dropdown). */
+  refinerModel?: string;
+  /** Per-run model override (technical ID, e.g. from the GUI dropdown). */
+  evaluatorModel?: string;
   refinerLlm?: LlmClient;
   evaluatorLlm?: LlmClient;
   onProgress?: (event: PipelineProgress) => void;
@@ -33,7 +42,7 @@ export interface RefineRunResult {
 function emit(
   onProgress: RefineRunOptions["onProgress"],
   stage: string,
-  message: string
+  message: string,
 ): void {
   onProgress?.({ stage, message, at: new Date().toISOString() });
 }
@@ -44,11 +53,15 @@ function emit(
  * report to prompt-history/.
  */
 export async function runRefinePipeline(
-  options: RefineRunOptions
+  options: RefineRunOptions,
 ): Promise<RefineRunResult> {
   const { root, issuesFile, feedback, onProgress } = options;
 
-  const promptPath = path.join(root, "prompts", "linkedin-job-assistant.system.md");
+  const promptPath = path.join(
+    root,
+    "prompts",
+    "linkedin-job-assistant.system.md",
+  );
   const historyDirectory = path.join(root, "prompt-history");
 
   emit(onProgress, "load", "Reading prompt and issues...");
@@ -62,34 +75,47 @@ export async function runRefinePipeline(
   emit(
     onProgress,
     "load",
-    `Loaded ${issues.length} issue(s), prompt is ${currentPrompt.length} chars.`
+    `Loaded ${issues.length} issue(s), prompt is ${currentPrompt.length} chars.`,
   );
 
   if (feedback?.length) {
-    emit(onProgress, "load", `Loaded ${feedback.length} human feedback item(s).`);
+    emit(
+      onProgress,
+      "load",
+      `Loaded ${feedback.length} human feedback item(s).`,
+    );
   }
 
   const maxCandidateLength = Number(process.env.PROMPT_MAX_LENGTH ?? 50_000);
 
-  const refinerModel = process.env.PROMPT_REFINER_MODEL;
-  const evaluatorModel = process.env.PROMPT_EVALUATOR_MODEL;
-
-  if (!options.refinerLlm && !refinerModel) {
-    throw new Error("PROMPT_REFINER_MODEL must be set in .env.");
-  }
-  if (!options.evaluatorLlm && !evaluatorModel) {
-    throw new Error("PROMPT_EVALUATOR_MODEL must be set in .env.");
-  }
-
+  // Only resolve real models when a client is not injected (tests and the
+  // MCP layer inject fakes, so the env is never read on those paths).
   const refinerLlm =
     options.refinerLlm ??
-    withProgress(
-      "refiner",
-      createAnthropicClient(refinerModel as string),
-      onProgress
-    );
+    (() => {
+      const config = modelConfig("refiner", options.refinerModel);
+      emit(
+        onProgress,
+        "load",
+        `Refiner model: ${config.model} (${config.label})`,
+      );
+      return withProgress(
+        "refiner",
+        createLlmClient(config.model, config.provider),
+        onProgress,
+      );
+    })();
   const evaluatorLlm =
-    options.evaluatorLlm ?? createAnthropicClient(evaluatorModel as string);
+    options.evaluatorLlm ??
+    (() => {
+      const config = modelConfig("evaluator", options.evaluatorModel);
+      emit(
+        onProgress,
+        "load",
+        `Evaluator model: ${config.model} (${config.label})`,
+      );
+      return createLlmClient(config.model, config.provider);
+    })();
 
   const evaluate = async (candidate: string) => {
     emit(onProgress, "evaluator", "Adversarial evaluation started…");
@@ -101,7 +127,7 @@ export async function runRefinePipeline(
       emit(
         onProgress,
         "evaluator",
-        `Evaluation completed in ${seconds}s — score=${evaluation.score} passed=${evaluation.passed}`
+        `Evaluation completed in ${seconds}s — score=${evaluation.score} passed=${evaluation.passed}`,
       );
       return evaluation;
     } catch (error) {
@@ -110,7 +136,7 @@ export async function runRefinePipeline(
         "evaluator",
         `Evaluation FAILED after ${((Date.now() - startedAt) / 1000).toFixed(1)}s — ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       throw error;
     }
@@ -125,7 +151,7 @@ export async function runRefinePipeline(
       maxCandidateLength,
     },
     refinerLlm,
-    evaluate
+    evaluate,
   );
 
   await mkdir(historyDirectory, { recursive: true });
@@ -139,7 +165,10 @@ export async function runRefinePipeline(
   let candidatePath: string | undefined;
 
   if (result.status === "promoted") {
-    candidatePath = path.join(historyDirectory, `${timestamp}.candidate.system.md`);
+    candidatePath = path.join(
+      historyDirectory,
+      `${timestamp}.candidate.system.md`,
+    );
     await writeFile(candidatePath, result.refinedPrompt, "utf8");
     emit(onProgress, "write", `Candidate prompt created: ${candidatePath}`);
   }
@@ -149,15 +178,60 @@ export async function runRefinePipeline(
   return { result, reportPath, candidatePath };
 }
 
+interface ModelConfig {
+  model: string;
+  provider?: ModelProvider;
+  label: string;
+}
+
+/**
+ * Resolves which model + provider to use for one pipeline role. An explicit
+ * per-run override (GUI dropdown) wins and derives its provider from the
+ * model registry; otherwise the PROMPT_*_MODEL / PROMPT_*_PROVIDER env vars
+ * apply, with the provider inferred from the registry when not set.
+ */
+function modelConfig(
+  role: "refiner" | "evaluator",
+  override?: string,
+): ModelConfig {
+  const upper = role === "refiner" ? "REFINER" : "EVALUATOR";
+  const model = override ?? process.env[`PROMPT_${upper}_MODEL`];
+  if (!model) {
+    throw new Error(`PROMPT_${upper}_MODEL must be set in .env.`);
+  }
+
+  const definition = resolveModelDefinition(model);
+
+  // Registry models always use their registry provider: an nvidia/* model ID
+  // must never be sent to the Anthropic API because a stray
+  // PROMPT_*_PROVIDER default says "anthropic". The env provider only applies
+  // to custom model IDs not in the registry.
+  if (MODEL_REGISTRY.some((entry) => entry.id === model)) {
+    return { model, label: definition.provider };
+  }
+
+  const envProvider = process.env[`PROMPT_${upper}_PROVIDER`];
+  const provider: ModelProvider | undefined =
+    envProvider === "nvidia" || envProvider === "anthropic"
+      ? envProvider
+      : definition.provider;
+
+  return { model, provider, label: provider };
+}
+
 /** Wraps an LLM client so each request reports start/completion/failure. */
 export function withProgress(
   label: string,
   llm: LlmClient,
-  onProgress: RefineRunOptions["onProgress"]
+  onProgress: RefineRunOptions["onProgress"],
 ): LlmClient {
   return {
     async generateText(prompt: string): Promise<string> {
-      emit(onProgress, "llm", `[${label}] request started — ${new Date().toISOString()}`);
+      emit(
+        onProgress,
+        "llm",
+        `[${label}] request started — ${new Date().toISOString()}`,
+      );
       const startedAt = Date.now();
 
       try {
@@ -172,7 +246,7 @@ export function withProgress(
           "llm",
           `[${label}] FAILED after ${seconds}s — ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
         throw error;
       }

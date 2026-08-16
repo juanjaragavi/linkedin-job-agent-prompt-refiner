@@ -47,8 +47,8 @@ new prompt
       section(
         "## Patch\n```diff\n+ change\n```\n\n## Revised Prompt\nnext",
         "Patch",
-        "Revised Prompt"
-      )
+        "Revised Prompt",
+      ),
     ).toBe("+ change");
   });
 
@@ -57,8 +57,8 @@ new prompt
       section(
         "## Revised Prompt\nnew prompt content without a rationale section",
         "Revised Prompt",
-        "Rationale"
-      )
+        "Rationale",
+      ),
     ).toBe("new prompt content without a rationale section");
   });
 });
@@ -66,20 +66,22 @@ new prompt
 describe("extractDecision", () => {
   it("accepts a bare decision line", () => {
     expect(extractDecision("## Decision\nPROMOTE\n\n## Patch\n...")).toBe(
-      "PROMOTE"
+      "PROMOTE",
     );
   });
 
   it("accepts a trailing annotation after the decision", () => {
     expect(
-      extractDecision("## Decision\nPROMOTE — subject to review\n\n## Patch\n...")
+      extractDecision(
+        "## Decision\nPROMOTE — subject to review\n\n## Patch\n...",
+      ),
     ).toBe("PROMOTE");
   });
 
   it("accepts a Decision: prefix", () => {
-    expect(extractDecision("## Decision\nDecision: REJECT\n\n## Patch\n...")).toBe(
-      "REJECT"
-    );
+    expect(
+      extractDecision("## Decision\nDecision: REJECT\n\n## Patch\n..."),
+    ).toBe("REJECT");
   });
 
   it("skips a template echo and finds the real decision", () => {
@@ -112,7 +114,7 @@ new prompt
 describe("detectUnsafeCandidate", () => {
   it("flags auto-submit and CAPTCHA-bypass phrasing", () => {
     const reasons = detectUnsafeCandidate(
-      "The agent may auto-submit the form and bypass CAPTCHA when blocked."
+      "The agent may auto-submit the form and bypass CAPTCHA when blocked.",
     );
 
     expect(reasons.length).toBeGreaterThanOrEqual(2);
@@ -121,24 +123,24 @@ describe("detectUnsafeCandidate", () => {
   it("does not flag safety prohibitions as unsafe behavior", () => {
     expect(
       detectUnsafeCandidate(
-        "Never submit without explicit confirmation. Do not bypass CAPTCHA."
-      )
+        "Never submit without explicit confirmation. Do not bypass CAPTCHA.",
+      ),
     ).toEqual([]);
   });
 
   it("does not flag gerund prohibition lists under a Prohibited heading", () => {
     expect(
       detectUnsafeCandidate(
-        "Prohibited actions:\n- Bypassing login walls, CAPTCHAs, OTP, or any anti-automation/security control.\n- Submitting an application without explicit confirmation."
-      )
+        "Prohibited actions:\n- Bypassing login walls, CAPTCHAs, OTP, or any anti-automation/security control.\n- Submitting an application without explicit confirmation.",
+      ),
     ).toEqual([]);
   });
 
   it("returns no reasons for a clean prompt", () => {
     expect(
       detectUnsafeCandidate(
-        "Pause before interacting with an external ATS and request confirmation."
-      )
+        "Pause before interacting with an external ATS and request confirmation.",
+      ),
     ).toEqual([]);
   });
 });
@@ -154,7 +156,7 @@ describe("refineLinkedInJobAgentPrompt", () => {
     const result = await refineLinkedInJobAgentPrompt(
       { currentPrompt: "Keep me as I am.", issues: [] },
       llmThatMustNotBeCalled,
-      async () => passingEvaluation
+      async () => passingEvaluation,
     );
 
     expect(result.status).toBe("no_change");
@@ -211,12 +213,12 @@ End of the document.
         ],
       },
       refinerLlm,
-      async () => failingEvaluation
+      async () => failingEvaluation,
     );
 
     expect(result.status).toBe("rejected");
     expect(result.refinedPrompt).toBe(
-      "Original prompt.\n\n## Final Section\nThis stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.\nEnd of the document."
+      "Original prompt.\n\n## Final Section\nThis stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.\nEnd of the document.",
     );
   });
 
@@ -262,11 +264,161 @@ End of the document.
         ],
       },
       refinerLlm,
-      async () => passingEvaluation
+      async () => passingEvaluation,
     );
 
     expect(result.status).toBe("promoted");
     expect(result.refinerResponse).toContain("PROMOTE — addresses both issues");
+  });
+
+  it("promotes a candidate whose Revised Prompt is wrapped in template tags", async () => {
+    const refinerLlm: LlmClient = {
+      async generateText() {
+        return `## Decision
+PROMOTE
+
+## Patch
++ recovery rule
+
+## Revised Prompt
+<current_prompt>
+A revised prompt with the mid-application recovery rule.
+
+## Final Section
+This stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.
+End of the document.
+</current_prompt>
+
+## Rationale
+- added the recovery rule
+
+## Guardrail Check
+- Confirmation: PASS
+- Truthfulness: PASS
+- Security: PASS
+- Platform compliance: PASS
+- Profile source of truth: PASS`;
+      },
+    };
+
+    const result = await refineLinkedInJobAgentPrompt(
+      {
+        currentPrompt:
+          "Original prompt.\n\n## Final Section\nThis stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.\nEnd of the document.",
+        issues: [
+          {
+            category: "browser_failure",
+            severity: "high",
+            evidence: "evidence",
+            expectedBehavior: "expected behavior",
+          },
+        ],
+      },
+      refinerLlm,
+      async () => passingEvaluation,
+    );
+
+    expect(result.status).toBe("promoted");
+    expect(result.refinedPrompt).toContain("mid-application recovery rule");
+    expect(result.refinedPrompt).not.toContain("<current_prompt>");
+  });
+
+  it("promotes a candidate that reflows wrapped lines in the tail", async () => {
+    const refinerLlm: LlmClient = {
+      async generateText() {
+        return `## Decision
+PROMOTE
+
+## Patch
++ rule
+
+## Revised Prompt
+A revised prompt with a new rule.
+
+## Final Section
+This stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content. End of the document.
+
+## Rationale
+- added the rule
+
+## Guardrail Check
+- Confirmation: PASS
+- Truthfulness: PASS
+- Security: PASS
+- Platform compliance: PASS
+- Profile source of truth: PASS`;
+      },
+    };
+
+    const result = await refineLinkedInJobAgentPrompt(
+      {
+        currentPrompt:
+          "Original prompt.\n\n## Final Section\nThis stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.\nEnd of the document.",
+        issues: [
+          {
+            category: "confirmation",
+            severity: "critical",
+            evidence: "evidence",
+            expectedBehavior: "expected behavior",
+          },
+        ],
+      },
+      refinerLlm,
+      async () => passingEvaluation,
+    );
+
+    expect(result.status).toBe("promoted");
+  });
+
+  it("promotes a candidate whose Revised Prompt ends with a horizontal rule echo", async () => {
+    const refinerLlm: LlmClient = {
+      async generateText() {
+        return `## Decision
+PROMOTE
+
+## Patch
++ rule
+
+## Revised Prompt
+A revised prompt with a new rule.
+
+## Final Section
+This stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.
+End of the document.
+
+---
+
+## Rationale
+- added the rule
+
+## Guardrail Check
+- Confirmation: PASS
+- Truthfulness: PASS
+- Security: PASS
+- Platform compliance: PASS
+- Profile source of truth: PASS`;
+      },
+    };
+
+    const result = await refineLinkedInJobAgentPrompt(
+      {
+        currentPrompt:
+          "Original prompt.\n\n## Final Section\nThis stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.\nEnd of the document.",
+        issues: [
+          {
+            category: "confirmation",
+            severity: "critical",
+            evidence: "evidence",
+            expectedBehavior: "expected behavior",
+          },
+        ],
+      },
+      refinerLlm,
+      async () => passingEvaluation,
+    );
+
+    expect(result.status).toBe("promoted");
+    expect(result.refinedPrompt.trimEnd()).not.toMatch(/---$/);
   });
 
   it("rejects a truncated candidate whose ending does not match the current prompt", async () => {
@@ -297,7 +449,7 @@ A revised prompt that stops mid-sentence without reaching the end of the`;
         ],
       },
       refinerLlm,
-      async () => passingEvaluation
+      async () => passingEvaluation,
     );
 
     expect(result.status).toBe("rejected");
@@ -341,7 +493,7 @@ Original prompt.
         ],
       },
       refinerLlm,
-      async () => passingEvaluation
+      async () => passingEvaluation,
     );
 
     expect(result.status).toBe("rejected");

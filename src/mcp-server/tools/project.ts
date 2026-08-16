@@ -4,12 +4,12 @@ import { projectRoot, runProcess, textResult, truncate } from "../helpers.js";
 
 async function runNpm(
   toolName: string,
-  args: string[]
+  args: string[],
 ): Promise<ReturnType<typeof textResult>> {
   const { stdout, stderr, exitCode } = await runProcess(
     `npm run ${args.join(" ")}`,
     projectRoot,
-    600_000
+    600_000,
   );
 
   const output = [
@@ -28,21 +28,21 @@ export function registerProjectTools(server: McpServer): void {
     "prompt_check",
     "Runs the offline validation of the active system prompt and test data (npm run prompt:check). No API key needed.",
     {},
-    async () => runNpm("prompt_check", ["prompt:check"])
+    async () => runNpm("prompt_check", ["prompt:check"]),
   );
 
   server.tool(
     "run_tests",
     "Runs the unit/integration test suite (npm test).",
     {},
-    async () => runNpm("run_tests", ["test"])
+    async () => runNpm("run_tests", ["test"]),
   );
 
   server.tool(
     "typecheck",
     "Runs the TypeScript type check (tsc --noEmit).",
     {},
-    async () => runNpm("typecheck", ["typecheck"])
+    async () => runNpm("typecheck", ["typecheck"]),
   );
 
   server.tool(
@@ -52,10 +52,10 @@ export function registerProjectTools(server: McpServer): void {
       issues_file: z
         .string()
         .describe(
-          "Path to the issues file relative to the project root, e.g. evaluations/prompt-refinement/issues.json"
+          "Path to the issues file relative to the project root, e.g. evaluations/prompt-refinement/issues.json",
         ),
     },
     async ({ issues_file }) =>
-      runNpm("prompt_refine", ["prompt:refine", "--", issues_file])
+      runNpm("prompt_refine", ["prompt:refine", "--", issues_file]),
   );
 }

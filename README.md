@@ -42,6 +42,46 @@ cp .env.example .env   # then set ANTHROPIC_API_KEY and models
 npm run web:build      # build the GUI once (or use npm run web:dev for dev mode)
 ```
 
+## Multi-provider LLM support (Anthropic + NVIDIA)
+
+The refinement loop is provider-agnostic: `refiner.ts` and `evaluator.ts` consume
+a `LlmClient`, and a registry in
+`src/prompt-refinement/providers/provider.ts` maps **commercial display names**
+to technical model IDs and their provider:
+
+| Display name (UI dropdown)        | Technical ID                            | Provider  |
+| --------------------------------- | --------------------------------------- | --------- |
+| Anthropic Claude Haiku 4.5        | `claude-haiku-4-5-20251001`             | Anthropic |
+| Anthropic Claude Sonnet 4.5       | `claude-sonnet-4-5-20250929`            | Anthropic |
+| NVIDIA Nemotron 3.5 Lightning 30B | `nvidia/nemotron-3.5-lightning-30b-a3b` | NVIDIA    |
+
+- **NVIDIA routing** — the NVIDIA client (`providers/nvidia.ts`) uses the
+  OpenAI SDK against `https://integrate.api.nvidia.com/v1` with
+  `NVIDIA_API_KEY`, streams completions, and deliberately discards
+  `delta.reasoning_content` so thinking tokens never corrupt section/JSON
+  parsing. `enable_thinking` is passed explicitly (default `false`); the
+  Nemotron family otherwise narrates its reasoning into `delta.content`.
+- **Provider selection** — a registry model ID always routes to its registry
+  provider. For a custom model ID, set `PROMPT_REFINER_PROVIDER` /
+  `PROMPT_EVALUATOR_PROVIDER` to `anthropic` or `nvidia`.
+- **Per-role models** — the refiner and evaluator are configured separately
+  (`PROMPT_REFINER_MODEL` vs `PROMPT_EVALUATOR_MODEL`) and can be mixed, e.g.
+  Anthropic refiner + NVIDIA evaluator.
+- **GUI** — the Dashboard's _Refiner model_ / _Evaluator model_ dropdowns
+  show commercial names from `GET /api/models`; unconfigured providers are
+  labelled "key not configured" and fail with an explicit error if selected.
+- **CLI** — override per run: `PROMPT_REFINER_MODEL=nvidia/… PROMPT_EVALUATOR_MODEL=nvidia/… npm run prompt:refine -- evaluations/…/issues.json`
+
+> **Model-fit notes (observed live).** NVIDIA's Nemotron 3.5 Lightning produces
+> good patches and sound judgments, but is unreliable at reproducing the full
+> ~39k-char prompt in one response (it summarizes ~2/3 of the time) and its
+> adversarial evaluations are very strict (it scores the current prompt 0/0
+> where Anthropic rates it 92/92). The pipeline is fail-closed either way:
+> incomplete candidates are rejected by the truncation-integrity gate, and the
+> raw refiner response is preserved in every report for diagnosis. For reliable
+> full-prompt refinement, prefer an Anthropic refiner; use the dropdowns to mix
+> roles per run.
+
 ## Commands
 
 ```bash
@@ -94,23 +134,23 @@ server-side — a candidate that fails the static safety scan is refused with
 
 ### REST API
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/api/health` | Service status: prompt presence/chars, issues count, model |
-| GET | `/api/events` | SSE stream of pipeline progress events (`load`, `llm`, `evaluator`, `write`, `done`) |
-| GET | `/api/logs` | Recent pipeline events (replay buffer, capped at 200) |
-| GET | `/api/prompt` | The active system prompt (`{ path, content, chars }`) |
-| PUT | `/api/prompt` | Two-step save: `{ content, confirm }` (409 until `confirm: true`); backs up first |
-| GET | `/api/issues` | Issues list from `issues.json` |
-| POST | `/api/issues` | Add an issue (validated against the issue schema) |
-| PUT | `/api/issues` | Replace the full issues list (`{ issues: [...] }`, validated) |
-| DELETE | `/api/issues` | Remove by index (`{ index }`) |
-| GET | `/api/cases` | Regression cases from `cases.json` |
-| GET | `/api/check` | Runs `npm run prompt:check` and returns exit code + output lines |
-| GET | `/api/history` | Timestamped entries in `prompt-history/` (newest first) |
-| GET | `/api/history/:name` | Raw content of one history file |
-| POST | `/api/refine` | Runs the full refinement pipeline: `{ issuesFile, feedback? }`; streams progress over SSE; returns the report path + candidate path. Refuses (`409`) while a run is in progress |
-| POST | `/api/promote` | Two-step promotion: `{ candidatePath, confirm }`; re-runs the static safety scan and refuses unsafe candidates with `409`; backs up the active prompt and writes a promotion audit |
+| Method | Path                 | Description                                                                                                                                                                        |
+| ------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/health`        | Service status: prompt presence/chars, issues count, model                                                                                                                         |
+| GET    | `/api/events`        | SSE stream of pipeline progress events (`load`, `llm`, `evaluator`, `write`, `done`)                                                                                               |
+| GET    | `/api/logs`          | Recent pipeline events (replay buffer, capped at 200)                                                                                                                              |
+| GET    | `/api/prompt`        | The active system prompt (`{ path, content, chars }`)                                                                                                                              |
+| PUT    | `/api/prompt`        | Two-step save: `{ content, confirm }` (409 until `confirm: true`); backs up first                                                                                                  |
+| GET    | `/api/issues`        | Issues list from `issues.json`                                                                                                                                                     |
+| POST   | `/api/issues`        | Add an issue (validated against the issue schema)                                                                                                                                  |
+| PUT    | `/api/issues`        | Replace the full issues list (`{ issues: [...] }`, validated)                                                                                                                      |
+| DELETE | `/api/issues`        | Remove by index (`{ index }`)                                                                                                                                                      |
+| GET    | `/api/cases`         | Regression cases from `cases.json`                                                                                                                                                 |
+| GET    | `/api/check`         | Runs `npm run prompt:check` and returns exit code + output lines                                                                                                                   |
+| GET    | `/api/history`       | Timestamped entries in `prompt-history/` (newest first)                                                                                                                            |
+| GET    | `/api/history/:name` | Raw content of one history file                                                                                                                                                    |
+| POST   | `/api/refine`        | Runs the full refinement pipeline: `{ issuesFile, feedback? }`; streams progress over SSE; returns the report path + candidate path. Refuses (`409`) while a run is in progress    |
+| POST   | `/api/promote`       | Two-step promotion: `{ candidatePath, confirm }`; re-runs the static safety scan and refuses unsafe candidates with `409`; backs up the active prompt and writes a promotion audit |
 
 All file access is confined to the project root (and history reads to
 `prompt-history/`); path traversal is rejected. Malformed JSON and schema

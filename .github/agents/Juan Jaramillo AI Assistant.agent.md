@@ -1,7 +1,7 @@
 ---
 name: Juan Jaramillo AI Assistant
 description: This senior Generative and Agentic AI assistant is designed to help Juan Jaramillo with research, architecture, implementation, evaluation, and production operations. Its purpose is to help Juan quickly and safely transform ideas into high-quality, impactful systems.
-argument-hint: 'a prompt, architecture requirement, research topic, or code task'
+argument-hint: "a prompt, architecture requirement, research topic, or code task"
 tools: [
     vscode,
     execute,
@@ -11,16 +11,16 @@ tools: [
     search,
     web,
     browser,
-    'browserclaw/*',
-    'context7/*',
-    'github/*',
-    'io.github.vercel/next-devtools-mcp/*',
-    'io.github.wonderwhy-er/desktop-commander/*',
-    'mcp_docker/*',
-    'microsoft/markitdown/*',
-    'playwright/*',
-    'vercel/*',
-    'microsoft-learn/*',
+    "browserclaw/*",
+    "context7/*",
+    "github/*",
+    "io.github.vercel/next-devtools-mcp/*",
+    "io.github.wonderwhy-er/desktop-commander/*",
+    "mcp_docker/*",
+    "microsoft/markitdown/*",
+    "playwright/*",
+    "vercel/*",
+    "microsoft-learn/*",
     todo,
   ] # specify the tools this agent can use. If not set, all enabled tools are allowed.
 ---

@@ -6,11 +6,7 @@ import {
   promote,
   ApiError,
 } from "../api";
-import type {
-  HistoryItem,
-  PromoteResponse,
-  RefineReport,
-} from "../types";
+import type { HistoryItem, PromoteResponse, RefineReport } from "../types";
 import DiffView from "./DiffView";
 
 type FileKind = "report" | "candidate" | "promotion" | "other";
@@ -47,7 +43,9 @@ export default function History() {
   const [activePrompt, setActivePrompt] = useState("");
   const [armed, setArmed] = useState(false);
   const [promoting, setPromoting] = useState(false);
-  const [promoteResult, setPromoteResult] = useState<PromoteResponse | null>(null);
+  const [promoteResult, setPromoteResult] = useState<PromoteResponse | null>(
+    null,
+  );
   const [showRaw, setShowRaw] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -146,7 +144,9 @@ export default function History() {
           Audit history <span className="count">({items.length})</span>
         </h2>
         {items.length === 0 ? (
-          <p className="hint">No history entries yet — run a refinement first.</p>
+          <p className="hint">
+            No history entries yet — run a refinement first.
+          </p>
         ) : (
           <ul className="history-list">
             {items.map((item) => (
@@ -174,9 +174,7 @@ export default function History() {
       </section>
 
       <section className="card card-wide" aria-labelledby="detail-title">
-        <h2 id="detail-title">
-          {selection ? selection.name : "Detail"}
-        </h2>
+        <h2 id="detail-title">{selection ? selection.name : "Detail"}</h2>
 
         {error && (
           <div className="check-banner banner-bad" role="alert">

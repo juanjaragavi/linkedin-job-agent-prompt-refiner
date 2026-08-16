@@ -27,16 +27,18 @@ and prompt_refine over hand-written npm commands.`,
       command: z
         .string()
         .describe(
-          "The full shell command to run, e.g. ssh user@host 'tail -50 /var/log/app.log'"
+          "The full shell command to run, e.g. ssh user@host 'tail -50 /var/log/app.log'",
         ),
       cwd: z
         .string()
         .optional()
-        .describe("Working directory, relative to the project root. Defaults to the project root."),
+        .describe(
+          "Working directory, relative to the project root. Defaults to the project root.",
+        ),
       confirm: z
         .boolean()
         .describe(
-          "Must be true to execute. Pass false or omit to preview the command for approval."
+          "Must be true to execute. Pass false or omit to preview the command for approval.",
         ),
       timeoutMs: z
         .number()
@@ -50,7 +52,7 @@ and prompt_refine over hand-written npm commands.`,
 
       if (confirm !== true) {
         return textResult(
-          `APPROVAL REQUIRED — command NOT executed.\n\nCommand:\n${command}\n\nCWD: ${workingDir}\n\nTo execute, call run_command again with confirm: true.`
+          `APPROVAL REQUIRED — command NOT executed.\n\nCommand:\n${command}\n\nCWD: ${workingDir}\n\nTo execute, call run_command again with confirm: true.`,
         );
       }
 
@@ -58,12 +60,12 @@ and prompt_refine over hand-written npm commands.`,
       const { stdout, stderr, exitCode } = await runProcess(
         command,
         workingDir,
-        timeoutMs
+        timeoutMs,
       );
       const durationMs = Date.now() - startedAt;
 
       await appendAuditLog(
-        `[exit=${exitCode}] cwd=${workingDir} took=${durationMs}ms cmd=${command}`
+        `[exit=${exitCode}] cwd=${workingDir} took=${durationMs}ms cmd=${command}`,
       );
 
       const output = [
@@ -75,7 +77,9 @@ and prompt_refine over hand-written npm commands.`,
         .filter(Boolean)
         .join("\n");
 
-      return textResult(output || `[run_command] exit code: ${exitCode} (no output)`);
-    }
+      return textResult(
+        output || `[run_command] exit code: ${exitCode} (no output)`,
+      );
+    },
   );
 }

@@ -35,7 +35,7 @@ decisions — nothing ships without you.
 | ------------------------------ | -------------------------------------------------- | ---------------------------------------------------- |
 | Node.js 20 LTS+                | `node -v`                                          | `v20.x` or newer (this machine: `v25.8.1`)           |
 | npm                            | `npm -v`                                           | any recent version                                   |
-| Dependencies installed         | `test -d node_modules && echo present`             | `present` (if not: `npm install`)   |
+| Dependencies installed         | `test -d node_modules && echo present`             | `present` (if not: `npm install`)                    |
 | Active system prompt installed | `head -5 prompts/linkedin-job-assistant.system.md` | starts with `# System` (not the placeholder comment) |
 | `.env` present (gitignored)    | `ls -la .env`                                      | file exists                                          |
 
@@ -480,8 +480,25 @@ only when everything passes — usable in CI or a pre-commit hook. Covered in
 
 - **Models & limits** live in `.env`: `PROMPT_REFINER_MODEL`,
   `PROMPT_EVALUATOR_MODEL`, `PROMPT_MAX_LENGTH`. Default is
-  `claude-haiku-4-5-20251001` for both. Use models available to your Anthropic
+  `claude-haiku-4-5-20251001` for both. Use models available to your
   account; the evaluator can be set to a stronger model than the refiner.
+- **Providers:** the same `.env` can hold `ANTHROPIC_API_KEY` and
+  `NVIDIA_API_KEY`. A model ID from the registry
+  (`claude-haiku-4-5-20251001`, `claude-sonnet-4-5-20250929`,
+  `nvidia/nemotron-3.5-lightning-30b-a3b`) routes to its provider
+  automatically — an `nvidia/*` ID is never sent to the Anthropic API. The
+  optional `PROMPT_REFINER_PROVIDER` / `PROMPT_EVALUATOR_PROVIDER`
+  (`anthropic` or `nvidia`) only matter for custom model IDs not in the
+  registry. NVIDIA runs through `https://integrate.api.nvidia.com/v1` with
+  `NVIDIA_ENABLE_THINKING=false` by default (reasoning tokens are always
+  discarded).
+- **Model fit (observed live):** Anthropic models reliably reproduce the full
+  prompt; NVIDIA Nemotron 3.5 Lightning produces good patches but only
+  reproduces the full prompt ~1/3 of the time (the integrity gate rejects the
+  rest, fail-closed) and its adversarial scores are very strict (0/0 on a
+  prompt Anthropic rates 92/92). For dependable refinement keep the refiner
+  on Anthropic; the GUI's per-role dropdowns let you mix (e.g. Anthropic
+  refiner + NVIDIA evaluator).
 - **Keep `temperature: 0`** for repeatable refinement (fixed in
   `providers/anthropic.ts`).
 - **Synthetic fixtures first** — mock browser pages, fake postings, no real
@@ -500,6 +517,7 @@ only when everything passes — usable in CI or a pre-commit hook. Covered in
 | Symptom                                                                    | Cause / fix                                                                                                                                                                                                                                                                                                                                                                                  |
 | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ANTHROPIC_API_KEY is missing`                                             | Add the key to `.env` (never commit it).                                                                                                                                                                                                                                                                                                                                                     |
+| `NVIDIA_API_KEY is missing`                                                | You selected an NVIDIA model but `NVIDIA_API_KEY` is unset — add it to `.env` or switch the dropdown back to an Anthropic model. The tool fails with this explicit error; it never silently falls back.                                                                                                                                                                                      |
 | `PROMPT_REFINER_MODEL and PROMPT_EVALUATOR_MODEL must be set`              | Set both in `.env`.                                                                                                                                                                                                                                                                                                                                                                          |
 | `Usage: npm run prompt:refine -- ...`                                      | Pass the issues file: `-- evaluations/prompt-refinement/issues.json`.                                                                                                                                                                                                                                                                                                                        |
 | `ENOENT: no such file ... issues.json`                                     | Wrong path/name — check `evaluations/prompt-refinement/`.                                                                                                                                                                                                                                                                                                                                    |
@@ -509,7 +527,7 @@ only when everything passes — usable in CI or a pre-commit hook. Covered in
 | `status=529`                                                               | Overloaded — retry later.                                                                                                                                                                                                                                                                                                                                                                    |
 | `Evaluator returned invalid JSON or an invalid schema.`                    | Transient LLM output; re-run.                                                                                                                                                                                                                                                                                                                                                                |
 | Run rejected with only the generic rationale, though the patch looks right | The refiner's response deviated from the requested format (decision with annotation, template echo, or fenced sections). The parser is tolerant of these now; check `refinerResponse` in the report to see the actual output. If it still rejects, the candidate genuinely failed a gate — see §2.9.                                                                                         |
-| Run rejected with "candidate appears truncated"                          | The refiner's response was cut off before reproducing the full prompt — it hit `max_tokens`. Raise `PROMPT_REFINER_MAX_TOKENS` in `.env` (default 20000; Haiku 4.5 supports 64k) and re-run. The active prompt is untouched.                                                                                               |
+| Run rejected with "candidate appears truncated"                            | The refiner's response was cut off before reproducing the full prompt — it hit `max_tokens`. Raise `PROMPT_REFINER_MAX_TOKENS` in `.env` (default 20000; Haiku 4.5 supports 64k) and re-run. The active prompt is untouched.                                                                                                                                                                 |
 | Script appears to freeze with no output                                    | The CLI now prints a `[refiner]` / `[evaluator]` line before each API call with timings, so check the last line to see the stuck stage. Requests time out after `PROMPT_REFINER_TIMEOUT_MS` (default 180s, 1 retry) instead of the SDK's silent 10-minute default — raise it in `.env` if a legitimate run times out. A frozen run is **not** a completed refinement; never treat it as one. |
 | Candidate always `rejected` with a static-scan reason                      | The candidate (or current prompt) contains enabling language; fix the rule wording, or check `detectUnsafeCandidate` for a false positive.                                                                                                                                                                                                                                                   |
 | `prompt:check` fails on the placeholder                                    | The real prompt is not installed in `prompts/linkedin-job-assistant.system.md`.                                                                                                                                                                                                                                                                                                              |
@@ -518,13 +536,19 @@ only when everything passes — usable in CI or a pre-commit hook. Covered in
 
 - **Prompt length ceiling:** raise/lower `PROMPT_MAX_LENGTH` in `.env`.
 - **Request timeout & retries:** `PROMPT_REFINER_TIMEOUT_MS` (default `180000`)
-  and `PROMPT_REFINER_MAX_RETRIES` (default `1`) bound each Anthropic call so a
-  slow request fails loudly instead of hanging silently.
+  and `PROMPT_REFINER_MAX_RETRIES` (default `1`) bound each LLM call so a slow
+  request fails loudly instead of hanging silently.
 - **Output token ceiling:** `PROMPT_REFINER_MAX_TOKENS` (default `20000`). The
   refiner must reproduce the full ~39k-char prompt, so keep this well above
   the prompt's token length or output will be truncated and rejected.
 - **Refiner vs. evaluator models:** pick different models per role in `.env`
-  (e.g. Haiku for the refiner, a stronger model for the evaluator).
+  (e.g. Haiku for the refiner, a stronger model for the evaluator) or per run
+  in the GUI's _Refiner model_ / _Evaluator model_ dropdowns — including
+  mixing providers (Anthropic + NVIDIA).
+- **NVIDIA thinking:** `NVIDIA_ENABLE_THINKING=true` requests reasoning output
+  on Nemotron-family models; the client discards `reasoning_content` either
+  way. Leave it `false` — with thinking enabled the model narrates its chain
+  of thought into the text stream, which corrupts parsing.
 - **Batch pre-approval:** handled _inside_ the prompt (Sections 1/4.3), not by
   the tool — the refiner never touches those rules unless a verified issue says
   they failed.
@@ -578,16 +602,16 @@ shell/SSH command (approval gate, §3.4) and the final promotion (§3.3):
 The LLM runs the Part II workflow itself. Each manual step maps to MCP tools;
 steps in bold keep you in the loop:
 
-| # | Step (manual §2.3)      | The LLM does it with                                                        | Control            |
-| - | ----------------------- | --------------------------------------------------------------------------- | ------------------ |
-| 1 | Capture the failure     | — (you provide the verified evidence; the LLM must never invent issues)      | **You**            |
-| 2 | Record the issue        | `write_file` / `edit_file` on `evaluations/prompt-refinement/issues.json`    | LLM (review after) |
-| 3 | Run the refiner         | `prompt_refine` (needs `ANTHROPIC_API_KEY` in `.env`)                        | LLM                |
-| 4 | Read the audit report   | `list_directory` on `prompt-history/`, then `read_file` on the newest `.report.json` | LLM          |
-| 5 | Inspect the diff        | `run_command` — `git diff --no-index …` (approval loop, §3.4)                | **You approve**    |
-| 6 | Test the candidate      | `read_file` on `cases.json`, `prompt_check`, `search_files`; walks the scenarios in a fresh agent session | LLM proposes, you review |
-| 7 | Promote                 | `run_command` — `cp …` — the one step you should never fully delegate        | **You approve**    |
-| 8 | Commit                  | `run_command` — `git add` / `git commit` (approval loop, §3.4)               | **You approve**    |
+| #   | Step (manual §2.3)    | The LLM does it with                                                                                      | Control                  |
+| --- | --------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------ |
+| 1   | Capture the failure   | — (you provide the verified evidence; the LLM must never invent issues)                                   | **You**                  |
+| 2   | Record the issue      | `write_file` / `edit_file` on `evaluations/prompt-refinement/issues.json`                                 | LLM (review after)       |
+| 3   | Run the refiner       | `prompt_refine` (needs `ANTHROPIC_API_KEY` in `.env`)                                                     | LLM                      |
+| 4   | Read the audit report | `list_directory` on `prompt-history/`, then `read_file` on the newest `.report.json`                      | LLM                      |
+| 5   | Inspect the diff      | `run_command` — `git diff --no-index …` (approval loop, §3.4)                                             | **You approve**          |
+| 6   | Test the candidate    | `read_file` on `cases.json`, `prompt_check`, `search_files`; walks the scenarios in a fresh agent session | LLM proposes, you review |
+| 7   | Promote               | `run_command` — `cp …` — the one step you should never fully delegate                                     | **You approve**          |
+| 8   | Commit                | `run_command` — `git add` / `git commit` (approval loop, §3.4)                                            | **You approve**          |
 
 In practice the loop looks like this: you report a verified failure → the LLM
 drafts the issue entry, saves it, runs `prompt_refine`, reads the report, and
@@ -771,23 +795,23 @@ Promotion never happens implicitly — there is no "auto-promote" anywhere in
 
 ### 4.5 REST API reference
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/api/health` | Service status: prompt presence/chars, issues count, model |
-| GET | `/api/events` | SSE stream of pipeline progress (`load`, `llm`, `evaluator`, `write`, `done`); named events, one per stage |
-| GET | `/api/logs` | Replay of recent events (capped at 200) |
-| GET | `/api/prompt` | Active prompt: `{ path, content, chars }` |
-| PUT | `/api/prompt` | Save: `{ content, confirm }` — `409` until `confirm: true`; backs up first |
-| GET | `/api/issues` | Issues from `issues.json` |
-| POST | `/api/issues` | Add an issue (schema-validated) |
-| PUT | `/api/issues` | Replace the list: `{ issues: [...] }` (validated as a whole) |
-| DELETE | `/api/issues` | Remove by index: `{ index }` |
-| GET | `/api/cases` | Regression cases from `cases.json` |
-| GET | `/api/check` | Runs `npm run prompt:check`; returns exit code + lines |
-| GET | `/api/history` | Timestamped `prompt-history/` entries, newest first |
-| GET | `/api/history/:name` | Raw content of one history file |
-| POST | `/api/refine` | Full pipeline run: `{ issuesFile, feedback? }`; streams SSE; `409` while a run is active |
-| POST | `/api/promote` | Two-step promotion: `{ candidatePath, confirm }`; re-scans statically, refuses unsafe with `409`; backs up + audits |
+| Method | Path                 | Description                                                                                                         |
+| ------ | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/health`        | Service status: prompt presence/chars, issues count, model                                                          |
+| GET    | `/api/events`        | SSE stream of pipeline progress (`load`, `llm`, `evaluator`, `write`, `done`); named events, one per stage          |
+| GET    | `/api/logs`          | Replay of recent events (capped at 200)                                                                             |
+| GET    | `/api/prompt`        | Active prompt: `{ path, content, chars }`                                                                           |
+| PUT    | `/api/prompt`        | Save: `{ content, confirm }` — `409` until `confirm: true`; backs up first                                          |
+| GET    | `/api/issues`        | Issues from `issues.json`                                                                                           |
+| POST   | `/api/issues`        | Add an issue (schema-validated)                                                                                     |
+| PUT    | `/api/issues`        | Replace the list: `{ issues: [...] }` (validated as a whole)                                                        |
+| DELETE | `/api/issues`        | Remove by index: `{ index }`                                                                                        |
+| GET    | `/api/cases`         | Regression cases from `cases.json`                                                                                  |
+| GET    | `/api/check`         | Runs `npm run prompt:check`; returns exit code + lines                                                              |
+| GET    | `/api/history`       | Timestamped `prompt-history/` entries, newest first                                                                 |
+| GET    | `/api/history/:name` | Raw content of one history file                                                                                     |
+| POST   | `/api/refine`        | Full pipeline run: `{ issuesFile, feedback? }`; streams SSE; `409` while a run is active                            |
+| POST   | `/api/promote`       | Two-step promotion: `{ candidatePath, confirm }`; re-scans statically, refuses unsafe with `409`; backs up + audits |
 
 **Failure model.** All file access is confined to the project root (`/api/promote`
 confines candidates to `prompt-history/`, static serving to `web/dist/`); path
@@ -821,16 +845,16 @@ curl -s http://127.0.0.1:3000/api/issues
 
 ### 4.7 GUI troubleshooting
 
-| Symptom | Cause / fix |
-| --- | --- |
-| Browser shows "API offline" / health card empty | The API server is not running or is on a different port. Start `npm run serve`; if you used `PORT=xxxx`, open that port. The Vite dev server proxies `/api` to `:3000` — keep the API up when using `npm run web:dev`. |
-| GUI looks unstyled or old | The built `web/dist/` is stale. Run `npm run web:build` and restart `npm run serve`. |
-| "Run refinement" shows 409 "already in progress" | A pipeline run is still active (it can take minutes). Wait for the `done` stage in the live log, or stop the server if it is truly stuck. |
-| Refinement fails with a timeout / LLM error | The Anthropic call failed (timeout, 401/404 auth/model, 429/529 overload). The live log names the failing stage; the report (if written) has the error in the evaluator/refiner lines. Tune `PROMPT_REFINER_TIMEOUT_MS` / `PROMPT_REFINER_MAX_RETRIES` / `PROMPT_REFINER_MAX_TOKENS` in `.env`. |
-| Candidate rejected by promotion | The static safety scan failed at promotion time — the `409` body lists the failures. Fix the candidate (or the prompt) and re-run; never force-promote. |
-| "Save" asks twice then fails | Saving is two-step by design. If step 2 errors, check that the prompt is non-empty and the server has write permission on `prompts/`. |
-| Diff shows the whole file as changed | The candidate and active prompt differ in line endings or trailing whitespace; the truncation-integrity gate would also have rejected such a candidate, so check the report's `refinerResponse` for why it was produced. |
-| SSE log stops updating | The EventSource reconnects automatically; if the server restarted, the replay buffer (`/api/logs`) re-seeds the panel on reload. |
+| Symptom                                          | Cause / fix                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser shows "API offline" / health card empty  | The API server is not running or is on a different port. Start `npm run serve`; if you used `PORT=xxxx`, open that port. The Vite dev server proxies `/api` to `:3000` — keep the API up when using `npm run web:dev`.                                                                          |
+| GUI looks unstyled or old                        | The built `web/dist/` is stale. Run `npm run web:build` and restart `npm run serve`.                                                                                                                                                                                                            |
+| "Run refinement" shows 409 "already in progress" | A pipeline run is still active (it can take minutes). Wait for the `done` stage in the live log, or stop the server if it is truly stuck.                                                                                                                                                       |
+| Refinement fails with a timeout / LLM error      | The Anthropic call failed (timeout, 401/404 auth/model, 429/529 overload). The live log names the failing stage; the report (if written) has the error in the evaluator/refiner lines. Tune `PROMPT_REFINER_TIMEOUT_MS` / `PROMPT_REFINER_MAX_RETRIES` / `PROMPT_REFINER_MAX_TOKENS` in `.env`. |
+| Candidate rejected by promotion                  | The static safety scan failed at promotion time — the `409` body lists the failures. Fix the candidate (or the prompt) and re-run; never force-promote.                                                                                                                                         |
+| "Save" asks twice then fails                     | Saving is two-step by design. If step 2 errors, check that the prompt is non-empty and the server has write permission on `prompts/`.                                                                                                                                                           |
+| Diff shows the whole file as changed             | The candidate and active prompt differ in line endings or trailing whitespace; the truncation-integrity gate would also have rejected such a candidate, so check the report's `refinerResponse` for why it was produced.                                                                        |
+| SSE log stops updating                           | The EventSource reconnects automatically; if the server restarted, the replay buffer (`/api/logs`) re-seeds the panel on reload.                                                                                                                                                                |
 
 ### 4.8 GUI + CLI + MCP consistency
 

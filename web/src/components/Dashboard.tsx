@@ -2,11 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getHealth,
   getLogs,
+  getModels,
   runCheck,
   startRefine,
   subscribePipeline,
 } from "../api";
-import type { CheckResult, HealthStatus, PipelineEvent, RefineRunResponse } from "../types";
+import type {
+  CheckResult,
+  HealthStatus,
+  ModelInfo,
+  PipelineEvent,
+  RefineRunResponse,
+} from "../types";
 
 export default function Dashboard({
   onNavigate,
@@ -14,9 +21,12 @@ export default function Dashboard({
   onNavigate: (tab: "history") => void;
 }) {
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [refinerModel, setRefinerModel] = useState<string>("");
+  const [evaluatorModel, setEvaluatorModel] = useState<string>("");
   const [events, setEvents] = useState<PipelineEvent[]>([]);
   const [issuesFile, setIssuesFile] = useState(
-    "evaluations/prompt-refinement/issues.json"
+    "evaluations/prompt-refinement/issues.json",
   );
   const [feedback, setFeedback] = useState("");
   const [running, setRunning] = useState(false);
@@ -37,6 +47,16 @@ export default function Dashboard({
   useEffect(() => {
     void refreshHealth();
   }, [refreshHealth]);
+
+  useEffect(() => {
+    void getModels()
+      .then((res) => {
+        setModels(res.models);
+        setRefinerModel((current) => current || res.defaultRefiner);
+        setEvaluatorModel((current) => current || res.defaultEvaluator);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     void getLogs()
@@ -63,7 +83,9 @@ export default function Dashboard({
         .filter((line) => line.length > 0 && !line.startsWith("#"));
       const result = await startRefine(
         issuesFile,
-        items.length > 0 ? items : undefined
+        items.length > 0 ? items : undefined,
+        refinerModel || undefined,
+        evaluatorModel || undefined,
       );
       setRunResult(result);
       void refreshHealth();
@@ -116,6 +138,24 @@ export default function Dashboard({
                 <code>{health.status.model}</code>
               </dd>
             </div>
+            <div>
+              <dt>Providers</dt>
+              <dd
+                className="row"
+                style={{ margin: "0.15rem 0 0", gap: "0.35rem" }}
+              >
+                <span
+                  className={`chip ${health.providers.anthropic ? "chip-ok" : "chip-error"}`}
+                >
+                  Anthropic {health.providers.anthropic ? "✓" : "key missing"}
+                </span>
+                <span
+                  className={`chip ${health.providers.nvidia ? "chip-ok" : "chip-error"}`}
+                >
+                  NVIDIA {health.providers.nvidia ? "✓" : "key missing"}
+                </span>
+              </dd>
+            </div>
           </dl>
         ) : (
           <p>Health check unavailable.</p>
@@ -143,32 +183,66 @@ export default function Dashboard({
           </div>
         )}
         {checkResult && (
-          <pre className="log">
-            {checkResult.lines.join("\n")}
-          </pre>
+          <pre className="log">{checkResult.lines.join("\n")}</pre>
         )}
       </section>
 
       <section className="card" aria-labelledby="run-title">
         <h2 id="run-title">Run refinement</h2>
         <label className="field">
-          <span className="label-text">Issues file (JSON, inside the project root)</span>
+          <span className="label-text">
+            Issues file (JSON, inside the project root)
+          </span>
           <input
             type="text"
             value={issuesFile}
             onChange={(event) => setIssuesFile(event.target.value)}
           />
         </label>
+        <div className="form-row">
+          <label className="field">
+            <span className="label-text">Refiner model</span>
+            <select
+              value={refinerModel}
+              onChange={(event) => setRefinerModel(event.target.value)}
+            >
+              {models.length === 0 && <option value="">Loading models…</option>}
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.displayName}
+                  {!model.configured ? " — key not configured" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="label-text">Evaluator model</span>
+            <select
+              value={evaluatorModel}
+              onChange={(event) => setEvaluatorModel(event.target.value)}
+            >
+              {models.length === 0 && <option value="">Loading models…</option>}
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.displayName}
+                  {!model.configured ? " — key not configured" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <label className="field">
           <span className="label-text">
-            Optional human feedback (one item per line,{" "}
-            <code>#</code> comments ignored)
+            Optional human feedback (one item per line, <code>#</code> comments
+            ignored)
           </span>
           <textarea
             rows={4}
             value={feedback}
             onChange={(event) => setFeedback(event.target.value)}
-            placeholder={"Example:\n# tighten the browser-failure rule\nNever retry unrelated selectors after a failure."}
+            placeholder={
+              "Example:\n# tighten the browser-failure rule\nNever retry unrelated selectors after a failure."
+            }
           />
         </label>
         <div className="row">
@@ -210,8 +284,8 @@ export default function Dashboard({
             <p>
               Adversarial score:{" "}
               <strong>{runResult.result.before.score}</strong> →{" "}
-              <strong>{runResult.result.after.score}</strong>{" "}
-              (after {runResult.result.after.passed ? "passed" : "FAILED"})
+              <strong>{runResult.result.after.score}</strong> (after{" "}
+              {runResult.result.after.passed ? "passed" : "FAILED"})
             </p>
             {runResult.result.rationale.length > 0 && (
               <ul>

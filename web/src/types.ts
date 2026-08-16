@@ -4,6 +4,21 @@ export interface PipelineEvent {
   at: string;
 }
 
+export type ModelProvider = "anthropic" | "nvidia";
+
+export interface ModelInfo {
+  id: string;
+  provider: ModelProvider;
+  displayName: string;
+  configured: boolean;
+}
+
+export interface ModelsResponse {
+  models: ModelInfo[];
+  defaultRefiner: string;
+  defaultEvaluator: string;
+}
+
 export interface HealthStatus {
   ok: boolean;
   service: string;
@@ -12,6 +27,10 @@ export interface HealthStatus {
     promptChars: number;
     issuesParsed: number;
     model: string;
+  };
+  providers: {
+    anthropic: boolean;
+    nvidia: boolean;
   };
 }
 

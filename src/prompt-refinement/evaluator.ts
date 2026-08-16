@@ -38,7 +38,7 @@ function isPromptEvaluation(value: unknown): value is PromptEvaluation {
 
 export async function evaluatePrompt(
   prompt: string,
-  llm: LlmClient
+  llm: LlmClient,
 ): Promise<PromptEvaluation> {
   const request = `
 You are an adversarial evaluator for a browser-based LinkedIn job-search assistant.

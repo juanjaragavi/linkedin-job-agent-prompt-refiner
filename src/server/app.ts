@@ -1,12 +1,23 @@
 import { EventEmitter } from "node:events";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
-import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  readdir,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { detectUnsafeCandidate } from "../prompt-refinement/refiner.js";
+import {
+  MODEL_REGISTRY,
+  isProviderConfigured,
+} from "../prompt-refinement/providers/provider.js";
 import type { LlmClient, PromptIssue } from "../prompt-refinement/types.js";
 import { resolveWithin, runProcess } from "../mcp-server/helpers.js";
 import { runRefinePipeline } from "./pipeline.js";
@@ -72,7 +83,10 @@ function sendText(res: ServerResponse, status: number, text: string): void {
   res.end(text);
 }
 
-function readBody(req: IncomingMessage, limit = 2 * 1024 * 1024): Promise<string> {
+function readBody(
+  req: IncomingMessage,
+  limit = 2 * 1024 * 1024,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
@@ -104,7 +118,7 @@ function parseJsonBody(raw: string, res: ServerResponse): unknown | undefined {
 async function serveStatic(
   res: ServerResponse,
   filePath: string,
-  webDist: string
+  webDist: string,
 ): Promise<void> {
   const resolved = resolveWithin(webDist, path.relative(webDist, filePath));
 
@@ -122,7 +136,9 @@ async function serveStatic(
   }
 
   const ext = path.extname(resolved).toLowerCase();
-  res.writeHead(200, { "content-type": CONTENT_TYPES[ext] ?? "application/octet-stream" });
+  res.writeHead(200, {
+    "content-type": CONTENT_TYPES[ext] ?? "application/octet-stream",
+  });
   res.end(await readFile(resolved));
 }
 
@@ -141,7 +157,10 @@ export function createApp(deps: ServerDeps = {}): App {
     bus.emit("event", event);
   }
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handle(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
     const pathname = url.pathname;
     const method = (req.method ?? "GET").toUpperCase();
@@ -149,8 +168,14 @@ export function createApp(deps: ServerDeps = {}): App {
     try {
       if (pathname === "/api/health" && method === "GET") {
         const [prompt, issues] = await Promise.all([
-          readFile(path.join(root, "prompts", "linkedin-job-assistant.system.md"), "utf8").catch(() => null),
-          readFile(path.join(root, "evaluations", "prompt-refinement", "issues.json"), "utf8").catch(() => null),
+          readFile(
+            path.join(root, "prompts", "linkedin-job-assistant.system.md"),
+            "utf8",
+          ).catch(() => null),
+          readFile(
+            path.join(root, "evaluations", "prompt-refinement", "issues.json"),
+            "utf8",
+          ).catch(() => null),
         ]);
         sendJson(res, 200, {
           ok: true,
@@ -161,6 +186,24 @@ export function createApp(deps: ServerDeps = {}): App {
             issuesParsed: issues ? (JSON.parse(issues) as unknown[]).length : 0,
             model: process.env.PROMPT_REFINER_MODEL ?? "unset",
           },
+          providers: {
+            anthropic: isProviderConfigured("anthropic"),
+            nvidia: isProviderConfigured("nvidia"),
+          },
+        });
+        return;
+      }
+
+      if (pathname === "/api/models" && method === "GET") {
+        sendJson(res, 200, {
+          models: MODEL_REGISTRY.map((model) => ({
+            ...model,
+            configured: isProviderConfigured(model.provider),
+          })),
+          defaultRefiner:
+            process.env.PROMPT_REFINER_MODEL ?? MODEL_REGISTRY[0].id,
+          defaultEvaluator:
+            process.env.PROMPT_EVALUATOR_MODEL ?? MODEL_REGISTRY[0].id,
         });
         return;
       }
@@ -174,7 +217,9 @@ export function createApp(deps: ServerDeps = {}): App {
         res.write("retry: 2000\n\n");
 
         const listener = (event: PipelineProgress): void => {
-          res.write(`event: ${event.stage}\ndata: ${JSON.stringify(event)}\n\n`);
+          res.write(
+            `event: ${event.stage}\ndata: ${JSON.stringify(event)}\n\n`,
+          );
         };
         bus.on("event", listener);
         req.on("close", () => bus.off("event", listener));
@@ -187,9 +232,17 @@ export function createApp(deps: ServerDeps = {}): App {
       }
 
       if (pathname === "/api/prompt" && method === "GET") {
-        const promptPath = path.join(root, "prompts", "linkedin-job-assistant.system.md");
+        const promptPath = path.join(
+          root,
+          "prompts",
+          "linkedin-job-assistant.system.md",
+        );
         const content = await readFile(promptPath, "utf8");
-        sendJson(res, 200, { path: promptPath, content, chars: content.length });
+        sendJson(res, 200, {
+          path: promptPath,
+          content,
+          chars: content.length,
+        });
         return;
       }
 
@@ -197,7 +250,10 @@ export function createApp(deps: ServerDeps = {}): App {
         const raw = await readBody(req);
         const body = parseJsonBody(raw, res);
         if (!body) return;
-        const { content, confirm } = body as { content?: string; confirm?: boolean };
+        const { content, confirm } = body as {
+          content?: string;
+          confirm?: boolean;
+        };
 
         if (typeof content !== "string" || content.length === 0) {
           sendJson(res, 400, { error: "content must be a non-empty string." });
@@ -205,16 +261,21 @@ export function createApp(deps: ServerDeps = {}): App {
         }
         if (confirm !== true) {
           sendJson(res, 409, {
-            error: "Two-step confirmation required: call again with confirm: true.",
+            error:
+              "Two-step confirmation required: call again with confirm: true.",
           });
           return;
         }
 
-        const promptPath = path.join(root, "prompts", "linkedin-job-assistant.system.md");
+        const promptPath = path.join(
+          root,
+          "prompts",
+          "linkedin-job-assistant.system.md",
+        );
         await mkdir(historyDirectory, { recursive: true });
         const backup = path.join(
           historyDirectory,
-          `${new Date().toISOString().replace(/[:.]/g, "-")}.prompt-edit.backup.md`
+          `${new Date().toISOString().replace(/[:.]/g, "-")}.prompt-edit.backup.md`,
         );
         await copyFile(promptPath, backup);
         await writeFile(promptPath, content, "utf8");
@@ -224,7 +285,10 @@ export function createApp(deps: ServerDeps = {}): App {
 
       if (pathname === "/api/issues" && method === "GET") {
         const issues = JSON.parse(
-          await readFile(path.join(root, "evaluations", "prompt-refinement", "issues.json"), "utf8")
+          await readFile(
+            path.join(root, "evaluations", "prompt-refinement", "issues.json"),
+            "utf8",
+          ),
         ) as PromptIssue[];
         sendJson(res, 200, { issues });
         return;
@@ -237,16 +301,30 @@ export function createApp(deps: ServerDeps = {}): App {
 
         const parsed = issueSchema.safeParse(body);
         if (!parsed.success) {
-          sendJson(res, 400, { error: "Invalid issue schema.", details: parsed.error.flatten() });
+          sendJson(res, 400, {
+            error: "Invalid issue schema.",
+            details: parsed.error.flatten(),
+          });
           return;
         }
 
-        const issuesPath = path.join(root, "evaluations", "prompt-refinement", "issues.json");
-        const issues = JSON.parse(await readFile(issuesPath, "utf8")) as PromptIssue[];
+        const issuesPath = path.join(
+          root,
+          "evaluations",
+          "prompt-refinement",
+          "issues.json",
+        );
+        const issues = JSON.parse(
+          await readFile(issuesPath, "utf8"),
+        ) as PromptIssue[];
         issues.push(parsed.data);
         await writeFile(issuesPath, JSON.stringify(issues, null, 2), "utf8");
 
-        sendJson(res, 201, { ok: true, issue: parsed.data, count: issues.length });
+        sendJson(res, 201, {
+          ok: true,
+          issue: parsed.data,
+          count: issues.length,
+        });
         return;
       }
 
@@ -265,13 +343,21 @@ export function createApp(deps: ServerDeps = {}): App {
         for (const item of issues) {
           const parsed = issueSchema.safeParse(item);
           if (!parsed.success) {
-            sendJson(res, 400, { error: "Invalid issue schema.", details: parsed.error.flatten() });
+            sendJson(res, 400, {
+              error: "Invalid issue schema.",
+              details: parsed.error.flatten(),
+            });
             return;
           }
           validated.push(parsed.data);
         }
 
-        const issuesPath = path.join(root, "evaluations", "prompt-refinement", "issues.json");
+        const issuesPath = path.join(
+          root,
+          "evaluations",
+          "prompt-refinement",
+          "issues.json",
+        );
         await writeFile(issuesPath, JSON.stringify(validated, null, 2), "utf8");
         sendJson(res, 200, { ok: true, count: validated.length });
         return;
@@ -283,13 +369,26 @@ export function createApp(deps: ServerDeps = {}): App {
         if (!body) return;
         const { index } = body as { index?: unknown };
 
-        if (typeof index !== "number" || !Number.isInteger(index) || index < 0) {
-          sendJson(res, 400, { error: "index must be a non-negative integer." });
+        if (
+          typeof index !== "number" ||
+          !Number.isInteger(index) ||
+          index < 0
+        ) {
+          sendJson(res, 400, {
+            error: "index must be a non-negative integer.",
+          });
           return;
         }
 
-        const issuesPath = path.join(root, "evaluations", "prompt-refinement", "issues.json");
-        const issues = JSON.parse(await readFile(issuesPath, "utf8")) as PromptIssue[];
+        const issuesPath = path.join(
+          root,
+          "evaluations",
+          "prompt-refinement",
+          "issues.json",
+        );
+        const issues = JSON.parse(
+          await readFile(issuesPath, "utf8"),
+        ) as PromptIssue[];
         if (index >= issues.length) {
           sendJson(res, 404, { error: `No issue at index ${index}.` });
           return;
@@ -302,14 +401,21 @@ export function createApp(deps: ServerDeps = {}): App {
 
       if (pathname === "/api/cases" && method === "GET") {
         const cases = JSON.parse(
-          await readFile(path.join(root, "evaluations", "prompt-refinement", "cases.json"), "utf8")
+          await readFile(
+            path.join(root, "evaluations", "prompt-refinement", "cases.json"),
+            "utf8",
+          ),
         );
         sendJson(res, 200, { cases });
         return;
       }
 
       if (pathname === "/api/check" && method === "GET") {
-        const { stdout, stderr, exitCode } = await runProcess("npm run prompt:check", root, 120_000);
+        const { stdout, stderr, exitCode } = await runProcess(
+          "npm run prompt:check",
+          root,
+          120_000,
+        );
         sendJson(res, 200, {
           exitCode,
           passed: exitCode === 0,
@@ -328,7 +434,7 @@ export function createApp(deps: ServerDeps = {}): App {
               const full = path.join(historyDirectory, name);
               const s = await stat(full);
               return { name, size: s.size, mtime: s.mtime.toISOString() };
-            })
+            }),
         );
         items.sort((a, b) => (a.mtime < b.mtime ? 1 : -1));
         sendJson(res, 200, { items });
@@ -336,30 +442,40 @@ export function createApp(deps: ServerDeps = {}): App {
       }
 
       if (pathname.startsWith("/api/history/") && method === "GET") {
-        const fileName = decodeURIComponent(pathname.slice("/api/history/".length));
+        const fileName = decodeURIComponent(
+          pathname.slice("/api/history/".length),
+        );
         const filePath = resolveWithin(historyDirectory, fileName);
         const content = await readFile(filePath, "utf8");
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.writeHead(200, {
+          "content-type": "application/json; charset=utf-8",
+        });
         res.end(content);
         return;
       }
 
       if (pathname === "/api/refine" && method === "POST") {
         if (refineRunning) {
-          sendJson(res, 409, { error: "A refinement run is already in progress." });
+          sendJson(res, 409, {
+            error: "A refinement run is already in progress.",
+          });
           return;
         }
 
         const raw = await readBody(req);
         const body = parseJsonBody(raw, res);
         if (!body) return;
-        const { issuesFile, feedback } = body as {
+        const { issuesFile, feedback, refinerModel, evaluatorModel } = body as {
           issuesFile?: string;
           feedback?: string[];
+          refinerModel?: string;
+          evaluatorModel?: string;
         };
 
         if (typeof issuesFile !== "string" || !issuesFile.endsWith(".json")) {
-          sendJson(res, 400, { error: "issuesFile must point to a .json file." });
+          sendJson(res, 400, {
+            error: "issuesFile must point to a .json file.",
+          });
           return;
         }
 
@@ -371,6 +487,14 @@ export function createApp(deps: ServerDeps = {}): App {
             root,
             issuesFile: resolvedIssues,
             feedback: Array.isArray(feedback) ? feedback : undefined,
+            refinerModel:
+              typeof refinerModel === "string" && refinerModel.length > 0
+                ? refinerModel
+                : undefined,
+            evaluatorModel:
+              typeof evaluatorModel === "string" && evaluatorModel.length > 0
+                ? evaluatorModel
+                : undefined,
             refinerLlm: deps.refinerLlm,
             evaluatorLlm: deps.evaluatorLlm,
             onProgress: publish,
@@ -402,7 +526,8 @@ export function createApp(deps: ServerDeps = {}): App {
         }
         if (confirm !== true) {
           sendJson(res, 409, {
-            error: "Two-step confirmation required: call again with confirm: true.",
+            error:
+              "Two-step confirmation required: call again with confirm: true.",
           });
           return;
         }
@@ -413,16 +538,24 @@ export function createApp(deps: ServerDeps = {}): App {
         const safetyFailures = detectUnsafeCandidate(content);
         if (safetyFailures.length > 0) {
           sendJson(res, 409, {
-            error: "Candidate failed the static safety scan; promotion blocked.",
+            error:
+              "Candidate failed the static safety scan; promotion blocked.",
             failures: safetyFailures,
           });
           return;
         }
 
-        const promptPath = path.join(root, "prompts", "linkedin-job-assistant.system.md");
+        const promptPath = path.join(
+          root,
+          "prompts",
+          "linkedin-job-assistant.system.md",
+        );
         await mkdir(historyDirectory, { recursive: true });
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const backup = path.join(historyDirectory, `${timestamp}.active-backup.system.md`);
+        const backup = path.join(
+          historyDirectory,
+          `${timestamp}.active-backup.system.md`,
+        );
         await copyFile(promptPath, backup);
         await copyFile(candidate, promptPath);
 
@@ -435,7 +568,7 @@ export function createApp(deps: ServerDeps = {}): App {
         await writeFile(
           path.join(historyDirectory, `${timestamp}.promotion.json`),
           JSON.stringify(audit, null, 2),
-          "utf8"
+          "utf8",
         );
 
         sendJson(res, 200, { ok: true, backup, audit });
@@ -475,7 +608,9 @@ export function createApp(deps: ServerDeps = {}): App {
       });
     },
     stop(): Promise<void> {
-      return new Promise((resolvePromise) => server.close(() => resolvePromise()));
+      return new Promise((resolvePromise) =>
+        server.close(() => resolvePromise()),
+      );
     },
   };
 }
