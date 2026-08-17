@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
+  addIssue,
   getHealth,
   getLogs,
   getModels,
@@ -17,6 +18,8 @@ import {
   subscribePipeline,
 } from "../api";
 import type {
+  AgentAction,
+  AgentActionKind,
   CheckResult,
   HealthStatus,
   ModelInfo,
@@ -32,10 +35,24 @@ function isMarkdownFile(name: string): boolean {
   return /\.(md|markdown|mdown|mkd)$/i.test(name);
 }
 
+function downloadMarkdown(name: string, content: string): void {
+  const url = URL.createObjectURL(
+    new Blob([content], { type: "text/markdown;charset=utf-8" }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download =
+    name.replace(/\.(md|markdown|mdown|mkd)$/i, "") + ".optimized.md";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
 export default function Dashboard({
   onNavigate,
 }: {
-  onNavigate: (tab: "history" | "editor") => void;
+  onNavigate: (tab: "history" | "editor" | "issues") => void;
 }) {
   const {
     document: workspaceDoc,
@@ -56,6 +73,8 @@ export default function Dashboard({
   const [runResult, setRunResult] = useState<RefineRunResponse | null>(null);
   const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
   const [checkRunning, setCheckRunning] = useState(false);
+  const [actionBusy, setActionBusy] = useState<AgentActionKind | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [sourceMode, setSourceMode] = useState<"upload" | "paste">("upload");
   const [pasteText, setPasteText] = useState("");
@@ -179,6 +198,7 @@ export default function Dashboard({
     setRunning(true);
     setRunError(null);
     setRunResult(null);
+    setActionNotice(null);
     try {
       const items = feedback
         .split("\n")
@@ -197,6 +217,79 @@ export default function Dashboard({
       setRunError(error instanceof Error ? error.message : String(error));
     } finally {
       setRunning(false);
+    }
+  };
+
+  /** Executes an agent action end-to-end so a verdict becomes a real change. */
+  const runAction = async (action: AgentAction): Promise<void> => {
+    setActionNotice(null);
+    setActionBusy(action.kind);
+
+    try {
+      switch (action.kind) {
+        case "apply_prompt": {
+          const optimized = runResult?.result.refinedPrompt;
+          if (!optimized || !workspaceDoc) return;
+          loadDocument(workspaceDoc.name, optimized, workspaceDoc.source);
+          setActionNotice(
+            "Optimized prompt loaded into the editor. Review it, then save when you are happy.",
+          );
+          onNavigate("editor");
+          return;
+        }
+
+        case "download_prompt": {
+          const optimized = runResult?.result.refinedPrompt;
+          if (!optimized) return;
+          downloadMarkdown(
+            workspaceDoc?.name ?? "optimized-prompt.md",
+            optimized,
+          );
+          setActionNotice("Downloaded.");
+          return;
+        }
+
+        case "add_issue": {
+          if (!action.issue) {
+            onNavigate("issues");
+            return;
+          }
+          const { count } = await addIssue(action.issue);
+          setActionNotice(
+            `Issue added (${count} on file). Re-running refinement against it…`,
+          );
+          await refreshHealth();
+          await handleRun();
+          return;
+        }
+
+        case "retry_refinement": {
+          await handleRun();
+          return;
+        }
+
+        case "raise_token_limit":
+          setActionNotice(
+            "Raise PROMPT_REFINER_MAX_TOKENS in .env, restart the API server, then retry.",
+          );
+          return;
+
+        case "shorten_prompt":
+          setActionNotice(
+            "Raise PROMPT_MAX_LENGTH in .env, or trim the prompt in the editor, then retry.",
+          );
+          return;
+
+        case "review_safety":
+          setActionNotice(
+            "The listed guardrails must stay intact. Edit the source prompt so the refiner does not need to weaken them, then retry.",
+          );
+          return;
+      }
+    } catch (error) {
+      setActionNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setActionBusy(null);
     }
   };
 
@@ -549,30 +642,63 @@ export default function Dashboard({
               <strong>{runResult.result.after.score}</strong> (after{" "}
               {runResult.result.after.passed ? "passed" : "FAILED"})
             </p>
-            {runResult.result.rationale.length > 0 && (
-              <ul>
-                {runResult.result.rationale.map((item, index) => (
-                  <li key={index}>{item}</li>
+            {runResult.result.attempts !== undefined &&
+              runResult.result.attempts > 1 && (
+                <p className="hint">
+                  Took <strong>{runResult.result.attempts}</strong> refiner
+                  attempts — each retry fed the rejection reason back.
+                </p>
+              )}
+
+            {runResult.result.safetyFailures?.length ? (
+              <div className="check-banner banner-bad" role="alert">
+                <strong>Blocked by safety guardrails.</strong> The candidate was
+                discarded and cannot be applied.
+                <ul>
+                  {runResult.result.safetyFailures.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {runResult.result.actions?.length ? (
+              <div className="action-panel">
+                <p className="action-title">Next steps</p>
+                {runResult.result.actions.map((action, index) => (
+                  <div key={index} className="action-item">
+                    <button
+                      type="button"
+                      className={`btn btn-small ${action.primary ? "btn-primary" : "btn-outline"}`}
+                      onClick={() => void runAction(action)}
+                      disabled={actionBusy !== null}
+                    >
+                      {actionBusy === action.kind ? "Working…" : action.label}
+                    </button>
+                    <span className="hint">{action.detail}</span>
+                  </div>
                 ))}
-              </ul>
+                {actionNotice && (
+                  <div className="check-banner banner-ok" role="status">
+                    {actionNotice}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {runResult.result.rationale.length > 0 && (
+              <details className="run-details">
+                <summary>Why the refiner decided this</summary>
+                <ul>
+                  {runResult.result.rationale.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+              </details>
             )}
             <p className="hint">
               Report: <code>{runResult.reportPath}</code>
             </p>
-            {runResult.candidatePath && (
-              <div className="row">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => onNavigate("history")}
-                >
-                  Review candidate &amp; promote →
-                </button>
-                <span className="hint">
-                  <code>{runResult.candidatePath}</code>
-                </span>
-              </div>
-            )}
           </div>
         )}
       </section>

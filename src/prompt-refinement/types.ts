@@ -35,6 +35,53 @@ export interface RefinerInput {
   humanFeedback?: string[];
   runId?: string;
   maxCandidateLength?: number;
+  /** Total refiner attempts before giving up. Retries feed the rejection reason back. */
+  maxAttempts?: number;
+}
+
+/**
+ * Why a candidate was rejected, in machine-readable form. `safety_violation`
+ * is terminal — the guardrail fired and the candidate must never be offered.
+ * Every other reason is recoverable by re-prompting the refiner.
+ */
+export type RejectionReason =
+  | "no_decision"
+  | "not_promoted"
+  | "empty_candidate"
+  | "truncated"
+  | "too_long"
+  | "safety_violation"
+  | "evaluation_regressed";
+
+export const RECOVERABLE_REJECTIONS: readonly RejectionReason[] = [
+  "no_decision",
+  "not_promoted",
+  "empty_candidate",
+  "truncated",
+  "too_long",
+  "evaluation_regressed",
+];
+
+export type AgentActionKind =
+  | "apply_prompt"
+  | "download_prompt"
+  | "retry_refinement"
+  | "add_issue"
+  | "raise_token_limit"
+  | "shorten_prompt"
+  | "review_safety";
+
+export interface AgentAction {
+  kind: AgentActionKind;
+  label: string;
+  /** Why this action is being offered — shown under the button. */
+  detail: string;
+  /** Exactly one action per result is primary. */
+  primary: boolean;
+  /** Prefilled issue for `add_issue`, so the fix is one click, not a form. */
+  issue?: PromptIssue;
+  /** Feedback lines to resend for `retry_refinement`. */
+  feedback?: string[];
 }
 
 export interface RefinerResult {
@@ -50,6 +97,14 @@ export interface RefinerResult {
     createdAt: string;
     issuesAddressed: string[];
   };
+  /** Set when status is "rejected". Drives the offered actions. */
+  rejectionReason?: RejectionReason;
+  /** Guardrail messages from the static scan; non-empty only on safety_violation. */
+  safetyFailures?: string[];
+  /** Refiner attempts made, including the successful one. */
+  attempts?: number;
+  /** Next steps the user can execute directly. */
+  actions?: AgentAction[];
   /** Raw refiner LLM response — kept for audit/diagnosis when parsing fails. */
   refinerResponse?: string;
 }

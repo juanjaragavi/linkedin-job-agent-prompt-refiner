@@ -108,7 +108,15 @@ export const promote = (candidatePath: string, confirm: boolean) =>
   });
 
 /** Stage names the backend pipeline emits (see src/server/pipeline.ts). */
-const EVENT_STAGES = ["load", "llm", "evaluator", "write", "done", "error"];
+const EVENT_STAGES = [
+  "load",
+  "llm",
+  "refiner",
+  "evaluator",
+  "write",
+  "done",
+  "error",
+];
 
 /**
  * Subscribes to the SSE pipeline event stream. Returns an unsubscribe fn.

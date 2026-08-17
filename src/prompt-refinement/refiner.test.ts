@@ -530,3 +530,148 @@ Original prompt.
     expect(result.refinedPrompt).toBe("Original prompt.");
   });
 });
+
+describe("agent actions", () => {
+  const issue = {
+    category: "confirmation" as const,
+    severity: "critical" as const,
+    evidence: "evidence",
+    expectedBehavior: "expected behavior",
+  };
+
+  const TAIL =
+    "## Final Section\nThis stable trailing section is deliberately long so the tail comparison covers more than eighty characters of unchanged content.\nEnd of the document.";
+
+  const promoteResponse = (body: string) => `## Decision
+PROMOTE
+
+## Patch
++ change
+
+## Revised Prompt
+${body}
+
+## Rationale
+- fixed
+
+## Guardrail Check
+- Confirmation: PASS`;
+
+  it("offers apply and download when a candidate is promoted", async () => {
+    const refinerLlm: LlmClient = {
+      async generateText() {
+        return promoteResponse(`Revised prompt.\n\n${TAIL}`);
+      },
+    };
+
+    const result = await refineLinkedInJobAgentPrompt(
+      { currentPrompt: `Original prompt.\n\n${TAIL}`, issues: [issue] },
+      refinerLlm,
+      async () => passingEvaluation,
+    );
+
+    expect(result.status).toBe("promoted");
+    expect(result.actions?.map((a) => a.kind)).toEqual([
+      "apply_prompt",
+      "download_prompt",
+    ]);
+    expect(result.actions?.[0]?.primary).toBe(true);
+  });
+
+  it("retries with corrective guidance and succeeds on a later attempt", async () => {
+    let calls = 0;
+    const refinerLlm: LlmClient = {
+      async generateText(request: string) {
+        calls += 1;
+        if (calls === 1) return "no decision here";
+        expect(request).toContain("CORRECTION FROM YOUR PREVIOUS ATTEMPT");
+        return promoteResponse(`Revised prompt.\n\n${TAIL}`);
+      },
+    };
+
+    const result = await refineLinkedInJobAgentPrompt(
+      {
+        currentPrompt: `Original prompt.\n\n${TAIL}`,
+        issues: [issue],
+        maxAttempts: 3,
+      },
+      refinerLlm,
+      async () => passingEvaluation,
+    );
+
+    expect(calls).toBe(2);
+    expect(result.status).toBe("promoted");
+    expect(result.attempts).toBe(2);
+  });
+
+  it("does not retry a safety violation", async () => {
+    let calls = 0;
+    const refinerLlm: LlmClient = {
+      async generateText() {
+        calls += 1;
+        return promoteResponse(
+          `Submit the application automatically.\n\n${TAIL}`,
+        );
+      },
+    };
+
+    const result = await refineLinkedInJobAgentPrompt(
+      {
+        currentPrompt: `Original prompt.\n\n${TAIL}`,
+        issues: [issue],
+        maxAttempts: 3,
+      },
+      refinerLlm,
+      async () => passingEvaluation,
+    );
+
+    expect(calls).toBe(1);
+    expect(result.rejectionReason).toBe("safety_violation");
+    expect(result.safetyFailures?.length).toBeGreaterThan(0);
+    expect(result.actions?.[0]?.kind).toBe("review_safety");
+    expect(result.actions?.some((a) => a.kind === "apply_prompt")).toBe(false);
+  });
+
+  it("turns evaluator violations into one-click issues when nothing changed", async () => {
+    const refinerLlm: LlmClient = {
+      async generateText() {
+        return "unused";
+      },
+    };
+
+    const result = await refineLinkedInJobAgentPrompt(
+      { currentPrompt: "Original prompt.", issues: [] },
+      refinerLlm,
+      async () => ({
+        score: 40,
+        passed: false,
+        violations: ["No confirmation before sending connection requests"],
+        strengths: [],
+        recommendedChanges: [],
+      }),
+    );
+
+    expect(result.status).toBe("no_change");
+    const action = result.actions?.[0];
+    expect(action?.kind).toBe("add_issue");
+    expect(action?.issue?.category).toBe("confirmation");
+    expect(action?.issue?.severity).toBe("critical");
+  });
+
+  it("always offers at least one action", async () => {
+    const refinerLlm: LlmClient = {
+      async generateText() {
+        return "garbage";
+      },
+    };
+
+    const result = await refineLinkedInJobAgentPrompt(
+      { currentPrompt: "Original prompt.", issues: [issue], maxAttempts: 1 },
+      refinerLlm,
+      async () => passingEvaluation,
+    );
+
+    expect(result.actions?.length).toBeGreaterThan(0);
+    expect(result.actions?.some((a) => a.primary)).toBe(true);
+  });
+});

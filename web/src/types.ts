@@ -88,6 +88,33 @@ export interface EvaluationSummary {
   recommendedChanges: string[];
 }
 
+export type RejectionReason =
+  | "no_decision"
+  | "not_promoted"
+  | "empty_candidate"
+  | "truncated"
+  | "too_long"
+  | "safety_violation"
+  | "evaluation_regressed";
+
+export type AgentActionKind =
+  | "apply_prompt"
+  | "download_prompt"
+  | "retry_refinement"
+  | "add_issue"
+  | "raise_token_limit"
+  | "shorten_prompt"
+  | "review_safety";
+
+export interface AgentAction {
+  kind: AgentActionKind;
+  label: string;
+  detail: string;
+  primary: boolean;
+  issue?: PromptIssue;
+  feedback?: string[];
+}
+
 export interface RefineReport {
   status: "promoted" | "rejected" | "no_change";
   refinedPrompt: string;
@@ -95,6 +122,10 @@ export interface RefineReport {
   rationale: string[];
   before: EvaluationSummary;
   after: EvaluationSummary;
+  rejectionReason?: RejectionReason;
+  safetyFailures?: string[];
+  attempts?: number;
+  actions?: AgentAction[];
   refinerResponse?: string;
 }
 

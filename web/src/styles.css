@@ -897,6 +897,58 @@ textarea {
   color: var(--ink-soft);
 }
 
+/* Executable next steps offered after a run */
+
+.action-panel {
+  margin: 0.85rem 0 0.4rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.action-title {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.action-item {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.7rem;
+}
+
+.action-item > .btn {
+  flex: 0 0 auto;
+}
+
+.action-item > .hint {
+  flex: 1;
+  min-width: 200px;
+  margin: 0;
+}
+
+.run-details {
+  margin: 0.6rem 0 0.2rem;
+}
+
+.run-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.run-details summary:hover {
+  color: var(--ink);
+}
+
 /* ==========================================================================
    Live pipeline log
    ========================================================================== */
@@ -957,6 +1009,10 @@ textarea {
 
 .log-stage-llm {
   color: #c9bda2;
+}
+
+.log-stage-refiner {
+  color: #d3a7d8;
 }
 
 .log-stage-evaluator {

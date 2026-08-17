@@ -35,6 +35,9 @@ export interface RefineRunOptions {
   onProgress?: (event: PipelineProgress) => void;
 }
 
+/** Refiner attempts per run; retries feed the rejection reason back to the model. */
+const MAX_REFINER_ATTEMPTS = 3;
+
 export interface RefineRunResult {
   result: RefinerResult;
   reportPath: string;
@@ -157,10 +160,19 @@ export async function runRefinePipeline(
       humanFeedback: feedback,
       runId: new Date().toISOString(),
       maxCandidateLength,
+      maxAttempts: MAX_REFINER_ATTEMPTS,
     },
     refinerLlm,
     evaluate,
   );
+
+  if ((result.attempts ?? 1) > 1) {
+    emit(
+      onProgress,
+      "refiner",
+      `Refiner needed ${result.attempts} attempt(s); each retry fed the rejection reason back.`,
+    );
+  }
 
   await mkdir(historyDirectory, { recursive: true });
 

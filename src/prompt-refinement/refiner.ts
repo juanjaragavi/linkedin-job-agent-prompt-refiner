@@ -3,7 +3,10 @@ import type {
   PromptEvaluation,
   RefinerInput,
   RefinerResult,
+  RejectionReason,
 } from "./types.js";
+import { RECOVERABLE_REJECTIONS } from "./types.js";
+import { deriveActions } from "./actions.js";
 
 const IMMUTABLE_GUARDRAILS = [
   "Require explicit confirmation before every irreversible action.",
@@ -188,6 +191,27 @@ function cleanRevisedPrompt(raw: string): string {
     .trim();
 }
 
+/**
+ * Corrective guidance appended to the refiner request on a retry. Each entry
+ * targets the specific failure so the model does not repeat it.
+ */
+const RETRY_GUIDANCE: Record<RejectionReason, string> = {
+  no_decision:
+    "Your previous response had no parsable '## Decision' line. Start the response with '## Decision' followed by exactly one of PROMOTE, REJECT, or NO_CHANGE on its own line.",
+  not_promoted:
+    "Your previous response did not decide PROMOTE. The issues below are verified and actionable — apply the smallest safe change that resolves them and decide PROMOTE.",
+  empty_candidate:
+    "Your previous response had an empty '## Revised Prompt' section. Reproduce the ENTIRE prompt with your changes applied.",
+  truncated:
+    "Your previous response was cut off — the revised prompt did not reproduce the original ending. Emit the complete prompt through its final line. Keep the Patch and Rationale sections brief to leave room.",
+  too_long:
+    "Your previous candidate exceeded the maximum length. Make a more surgical edit and do not add unrelated sections.",
+  safety_violation:
+    "Your previous candidate tripped a safety guardrail. Do not weaken any confirmation, truthfulness, or anti-bypass rule.",
+  evaluation_regressed:
+    "Your previous candidate scored no better than the original. Address the verified issues directly instead of rephrasing, and do not remove existing safety rules.",
+};
+
 export async function refineLinkedInJobAgentPrompt(
   input: RefinerInput,
   refinerLlm: LlmClient,
@@ -196,13 +220,14 @@ export async function refineLinkedInJobAgentPrompt(
   const before = await evaluate(input.currentPrompt);
 
   if (input.issues.length === 0 && !input.humanFeedback?.length) {
-    return {
+    const result: RefinerResult = {
       status: "no_change",
       refinedPrompt: input.currentPrompt,
       patch: "No verified issue or human feedback was supplied.",
       rationale: ["The refiner does not modify prompts without evidence."],
       before,
       after: before,
+      attempts: 0,
       changelogEntry: {
         version: "unchanged",
         runId: input.runId,
@@ -210,8 +235,50 @@ export async function refineLinkedInJobAgentPrompt(
         issuesAddressed: [],
       },
     };
+    return { ...result, actions: deriveActions(result) };
   }
 
+  const maxAttempts = Math.max(1, input.maxAttempts ?? 1);
+  let last: RefinerResult | undefined;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const correction =
+      last?.rejectionReason && RETRY_GUIDANCE[last.rejectionReason]
+        ? RETRY_GUIDANCE[last.rejectionReason]
+        : undefined;
+
+    const result = await attemptRefinement(
+      input,
+      before,
+      refinerLlm,
+      evaluate,
+      correction,
+    );
+    last = { ...result, attempts: attempt };
+
+    if (result.status === "promoted") break;
+
+    // A safety violation is the guardrail working as designed; retrying only
+    // burns tokens and risks coaxing the model past the check.
+    if (
+      !result.rejectionReason ||
+      !RECOVERABLE_REJECTIONS.includes(result.rejectionReason)
+    ) {
+      break;
+    }
+  }
+
+  const settled = last as RefinerResult;
+  return { ...settled, actions: deriveActions(settled) };
+}
+
+async function attemptRefinement(
+  input: RefinerInput,
+  before: PromptEvaluation,
+  refinerLlm: LlmClient,
+  evaluate: (candidate: string) => Promise<PromptEvaluation>,
+  correction?: string,
+): Promise<RefinerResult> {
   const issueText = input.issues
     .map((issue, index) =>
       [
@@ -239,7 +306,7 @@ You maintain Juan's safety-critical LinkedIn job-search assistant system prompt.
 Make the smallest possible changes needed to address verified issues. Do not rewrite
 unrelated sections. Do not change Juan's personal-profile facts. Do not add new
 browser, outreach, data-collection, or account-management capabilities.
-
+${correction ? `\nCORRECTION FROM YOUR PREVIOUS ATTEMPT:\n${correction}\n` : ""}
 Immutable guardrails:
 ${IMMUTABLE_GUARDRAILS.map((rule) => `- ${rule}`).join("\n")}
 
@@ -291,6 +358,12 @@ ${input.currentPrompt}
     .filter(Boolean);
 
   if (decision !== "PROMOTE" || !refinedPrompt) {
+    const reason: RejectionReason = !decision
+      ? "no_decision"
+      : decision !== "PROMOTE"
+        ? "not_promoted"
+        : "empty_candidate";
+
     return {
       status: "rejected",
       refinedPrompt: input.currentPrompt,
@@ -300,6 +373,7 @@ ${input.currentPrompt}
         : ["The candidate was not eligible for promotion."],
       before,
       after: before,
+      rejectionReason: reason,
       changelogEntry: {
         version: "rejected",
         runId: input.runId,
@@ -334,6 +408,7 @@ ${input.currentPrompt}
       ],
       before,
       after: before,
+      rejectionReason: "truncated",
       changelogEntry: {
         version: "rejected",
         runId: input.runId,
@@ -363,6 +438,9 @@ ${input.currentPrompt}
       ],
       before,
       after: before,
+      rejectionReason:
+        staticSafetyFailures.length > 0 ? "safety_violation" : "too_long",
+      safetyFailures: staticSafetyFailures,
       changelogEntry: {
         version: "rejected",
         runId: input.runId,
@@ -386,6 +464,7 @@ ${input.currentPrompt}
       ],
       before,
       after,
+      rejectionReason: "evaluation_regressed",
       changelogEntry: {
         version: "rejected",
         runId: input.runId,
