@@ -12,6 +12,7 @@ import type { RegressionCase } from "../types";
 import { renderMarkdown } from "../markdown";
 import { escapeRegExp, findMatches, highlightMarkdown } from "../highlight";
 import { useWorkspace } from "../workspace";
+import { applyCaseRule, caseStatus, type CaseStatus } from "../cases";
 
 type Mode = "split" | "preview";
 
@@ -29,6 +30,16 @@ interface OutlineItem {
 function countWords(text: string): number {
   const words = text.trim().match(/\S+/g);
   return words ? words.length : 0;
+}
+
+const OUTLINE_KEY = "prompt-editor.outline-open";
+
+function initialOutlineOpen(): boolean {
+  try {
+    return localStorage.getItem(OUTLINE_KEY) !== "false";
+  } catch {
+    return true;
+  }
 }
 
 export default function PromptEditor({
@@ -54,6 +65,8 @@ export default function PromptEditor({
   } | null>(null);
   const [cases, setCases] = useState<RegressionCase[]>([]);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
+  const [outlineOpen, setOutlineOpen] = useState<boolean>(initialOutlineOpen);
+  const [caseNotice, setCaseNotice] = useState<string | null>(null);
 
   const setContent = updateContent;
 
@@ -71,6 +84,14 @@ export default function PromptEditor({
       .then((result) => setCases(result.cases))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(OUTLINE_KEY, String(outlineOpen));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [outlineOpen]);
 
   // Reset per-document editor state when a different document is loaded.
   useEffect(() => {
@@ -464,6 +485,26 @@ export default function PromptEditor({
     });
   };
 
+  const actionableCount = useMemo(
+    () =>
+      loaded
+        ? cases.filter((item) => caseStatus(item, content) === "actionable")
+            .length
+        : 0,
+    [cases, content, loaded],
+  );
+
+  /** Writes the case rule into the document so the user can review and edit it. */
+  const applyCase = (item: RegressionCase): void => {
+    const next = applyCaseRule(content, item);
+    if (next === content) return;
+    setContent(next);
+    setArmed(false);
+    setCaseNotice(
+      `Added the "${item.id}" rule under ${item.section ?? "Operating Rules"}. Review it in the editor, then save or download.`,
+    );
+  };
+
   const scrollToHeading = (text: string): void => {
     const preview = previewRef.current;
     if (!preview) return;
@@ -741,7 +782,11 @@ export default function PromptEditor({
             )}
           </div>
         ) : (
-          <div className="editor-rail">
+          <div
+            className={
+              outlineOpen ? "editor-rail" : "editor-rail rail-collapsed"
+            }
+          >
             <div className="editor-body">
               <div
                 className="editor-toolbar"
@@ -971,29 +1016,54 @@ export default function PromptEditor({
               aria-label="Document outline"
               ref={outlineRef}
             >
-              <p className="outline-title">
-                Outline <span className="count">{outline.length}</span>
-              </p>
-              {outline.length === 0 ? (
-                <p className="hint">No headings yet.</p>
-              ) : (
-                <ul className="outline-list">
-                  {outline.map((item, index) => (
-                    <li key={`${item.text}-${index}`}>
-                      <button
-                        type="button"
-                        data-outline-index={index}
-                        className={`outline-item d${item.depth} ${
-                          index === activeOutlineIndex ? "active" : ""
-                        }`}
-                        onClick={() => scrollToHeading(item.text)}
-                      >
-                        {item.text}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <div className="outline-title">
+                <button
+                  type="button"
+                  className="outline-toggle"
+                  onClick={() => setOutlineOpen((open) => !open)}
+                  aria-expanded={outlineOpen}
+                  title={outlineOpen ? "Collapse outline" : "Expand outline"}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d={outlineOpen ? "M10 3L5 8l5 5" : "M6 3l5 5-5 5"}
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span className="outline-label">Outline</span>
+                </button>
+                <span className="count">{outline.length}</span>
+              </div>
+              {outlineOpen &&
+                (outline.length === 0 ? (
+                  <p className="hint">No headings yet.</p>
+                ) : (
+                  <ul className="outline-list">
+                    {outline.map((item, index) => (
+                      <li key={`${item.text}-${index}`}>
+                        <button
+                          type="button"
+                          data-outline-index={index}
+                          className={`outline-item d${item.depth} ${
+                            index === activeOutlineIndex ? "active" : ""
+                          }`}
+                          onClick={() => scrollToHeading(item.text)}
+                        >
+                          {item.text}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ))}
             </aside>
           </div>
         )}
@@ -1001,21 +1071,60 @@ export default function PromptEditor({
 
       <section className="card card-wide" aria-labelledby="cases-title">
         <h2 id="cases-title">
-          Regression cases <span className="count">({cases.length})</span>
+          Safety checks <span className="count">({cases.length})</span>
         </h2>
+        <p className="hint">
+          {loaded
+            ? `${actionableCount} of ${cases.length} not yet covered by this document. Applying a check inserts its rule into the Markdown so you can review, edit, and download it.`
+            : "Load a document to see which checks it already covers."}
+        </p>
+
+        {caseNotice && (
+          <div className="check-banner banner-ok" role="status">
+            {caseNotice}
+          </div>
+        )}
+
         {cases.length === 0 ? (
-          <p className="hint">No regression cases on file.</p>
+          <p className="hint">No safety checks on file.</p>
         ) : (
           <ul className="case-list">
-            {cases.map((item) => (
-              <li key={item.id} className="case-item">
-                <code className="case-id">{item.id}</code>
-                <p className="case-scenario">{item.scenario}</p>
-                <p className="case-expected">
-                  <strong>Expected:</strong> {item.expected}
-                </p>
-              </li>
-            ))}
+            {cases.map((item) => {
+              const status = loaded
+                ? caseStatus(item, content)
+                : ("reference" as CaseStatus);
+              return (
+                <li key={item.id} className={`case-item case-${status}`}>
+                  <div className="case-head">
+                    <span className={`case-status case-status-${status}`}>
+                      {status === "covered"
+                        ? "Covered"
+                        : status === "actionable"
+                          ? "Not covered"
+                          : "Reference"}
+                    </span>
+                    {item.severity && (
+                      <span className={`badge badge-${item.severity}`}>
+                        {item.severity}
+                      </span>
+                    )}
+                  </div>
+                  <p className="case-scenario">{item.scenario}</p>
+                  <p className="case-expected">
+                    <strong>Expected:</strong> {item.expected}
+                  </p>
+                  {status === "actionable" && (
+                    <button
+                      type="button"
+                      className="btn btn-small btn-primary case-action"
+                      onClick={() => applyCase(item)}
+                    >
+                      Add rule to prompt
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

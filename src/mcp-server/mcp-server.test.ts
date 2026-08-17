@@ -68,7 +68,10 @@ describe("prompt-refiner MCP server", () => {
       arguments: { path: "prompts/linkedin-job-assistant.system.md" },
     });
 
-    expect(extractText(result)).toContain("# System");
+    // Asserts on the tool envelope, not prompt copy, which changes per refinement run.
+    expect(extractText(result)).toContain(
+      "[read_file] prompts/linkedin-job-assistant.system.md",
+    );
   });
 
   it("writes, edits, and appends files inside the project", async () => {

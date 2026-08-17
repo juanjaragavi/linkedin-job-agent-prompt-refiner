@@ -1127,6 +1127,64 @@ textarea {
   font-size: 1.02rem;
 }
 
+/* Safety checks: status separates "do something" from "already handled" */
+
+.case-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.case-status {
+  font-family: var(--font-ui);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 5px;
+  padding: 0.12rem 0.4rem;
+  border: 1px solid transparent;
+}
+
+.case-status-actionable {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: var(--warn-line);
+}
+
+.case-status-covered {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+}
+
+.case-status-reference {
+  color: var(--ink-faint);
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+/* Unresolved checks carry a left marker so they read first in the grid. */
+.case-item.case-actionable {
+  border-left: 3px solid var(--warn);
+}
+
+.case-item.case-covered .case-scenario,
+.case-item.case-covered .case-expected {
+  opacity: 0.72;
+}
+
+/* Pushes the CTA to the card floor so buttons align across the grid row. */
+.case-action {
+  margin-top: auto;
+  align-self: flex-start;
+}
+
+.card-wide .case-item .case-expected {
+  margin-bottom: 0.65rem;
+}
+
 /* ==========================================================================
    History
    ========================================================================== */
@@ -1839,6 +1897,39 @@ textarea {
   gap: 1.2rem;
   align-items: start;
   margin-top: 0.7rem;
+  transition: grid-template-columns 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Collapsing the outline hands the reclaimed width to the editor panes. */
+.editor-rail.rail-collapsed {
+  grid-template-columns: minmax(0, 1fr) 116px;
+}
+
+.outline-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.outline-toggle:hover {
+  color: var(--ink);
+}
+
+.outline-toggle svg {
+  flex: 0 0 auto;
+  color: var(--accent);
 }
 
 .outline {
@@ -2232,7 +2323,8 @@ mark {
     padding: 1.4rem 1.2rem 2.2rem;
   }
 
-  .editor-rail {
+  .editor-rail,
+  .editor-rail.rail-collapsed {
     grid-template-columns: 1fr;
   }
 

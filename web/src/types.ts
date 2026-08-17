@@ -66,6 +66,13 @@ export interface RegressionCase {
   id: string;
   scenario: string;
   expected: string;
+  severity?: Severity;
+  /** Heading the rule belongs under when applied. */
+  section?: string;
+  /** Lowercase phrases that indicate the prompt already covers this case. */
+  detect?: string[];
+  /** The prompt line inserted when the user applies this case. */
+  rule?: string;
 }
 
 export interface HistoryItem {
