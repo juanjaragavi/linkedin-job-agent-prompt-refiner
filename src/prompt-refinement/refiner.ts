@@ -31,17 +31,25 @@ function stripFences(value: string): string {
 
 /**
  * Extracts the body of a `## Heading` section from an LLM response, up to
- * (but not including) the next `## Heading`. If the closing heading is missing
- * (e.g. a response truncated before the trailing sections), falls back to
- * capturing everything from the section start to the end of the response.
+ * (but not including) whichever of `nextHeadings` appears first. Models
+ * routinely reorder the trailing sections (e.g. emitting `## Guardrail Check`
+ * before `## Rationale`), so passing every heading that can legitimately
+ * follow prevents a later section from being absorbed into this one. If none
+ * of the closing headings are present (e.g. a response truncated before the
+ * trailing sections), falls back to capturing everything from the section
+ * start to the end of the response.
  */
 export function section(
   response: string,
   heading: string,
-  nextHeading: string,
+  ...nextHeadings: string[]
 ): string {
+  const alternation = nextHeadings
+    .map((next) => next.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
   const pattern = new RegExp(
-    `## ${heading}\\s*\\n([\\s\\S]*?)\\n## ${nextHeading}`,
+    `## ${heading}\\s*\\n([\\s\\S]*?)\\n## (?:${alternation})\\b`,
     "i",
   );
 
@@ -68,7 +76,7 @@ export function extractDecision(response: string): string {
   const DECISION_PATTERN =
     /^(?:decision\s*[:：]\s*)?(promote|reject|no_change)\b(?!\s*\|)/im;
 
-  const sectionText = section(response, "Decision", "Patch");
+  const sectionText = section(response, "Decision", "Patch", "Revised Prompt");
 
   if (sectionText) {
     const match = sectionText.match(DECISION_PATTERN);
@@ -275,7 +283,7 @@ ${input.currentPrompt}
   const decision = extractDecision(response);
   const patch = section(response, "Patch", "Revised Prompt");
   const refinedPrompt = cleanRevisedPrompt(
-    section(response, "Revised Prompt", "Rationale"),
+    section(response, "Revised Prompt", "Rationale", "Guardrail Check"),
   );
   const rationale = section(response, "Rationale", "Guardrail Check")
     .split("\n")

@@ -61,6 +61,36 @@ new prompt
       ),
     ).toBe("new prompt content without a rationale section");
   });
+
+  it("stops at whichever closing heading appears first", () => {
+    const reordered = `## Revised Prompt
+new prompt
+
+## Guardrail Check
+- Confirmation: PASS
+
+## Rationale
+- reason`;
+
+    expect(
+      section(reordered, "Revised Prompt", "Rationale", "Guardrail Check"),
+    ).toBe("new prompt");
+  });
+
+  it("does not stop at a heading that merely starts with the closing name", () => {
+    const response = `## Revised Prompt
+line one
+
+## Rationalization Notes
+still prompt body
+
+## Rationale
+- reason`;
+
+    expect(section(response, "Revised Prompt", "Rationale")).toBe(
+      "line one\n\n## Rationalization Notes\nstill prompt body",
+    );
+  });
 });
 
 describe("extractDecision", () => {
