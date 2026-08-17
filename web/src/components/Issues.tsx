@@ -115,6 +115,8 @@ export default function Issues() {
             <label className="field">
               <span className="label-text">Category</span>
               <select
+                id="issue-category"
+                name="category"
                 value={form.category}
                 onChange={(event) =>
                   set("category", event.target.value as IssueCategory)
@@ -131,6 +133,8 @@ export default function Issues() {
             <label className="field">
               <span className="label-text">Severity</span>
               <select
+                id="issue-severity"
+                name="severity"
                 value={form.severity}
                 onChange={(event) =>
                   set("severity", event.target.value as Severity)
@@ -148,6 +152,8 @@ export default function Issues() {
           <label className="field">
             <span className="label-text">Evidence (what was observed)</span>
             <textarea
+              id="issue-evidence"
+              name="evidence"
               rows={2}
               value={form.evidence}
               onChange={(event) => set("evidence", event.target.value)}
@@ -157,6 +163,8 @@ export default function Issues() {
           <label className="field">
             <span className="label-text">Expected behavior</span>
             <textarea
+              id="issue-expected-behavior"
+              name="expectedBehavior"
               rows={2}
               value={form.expectedBehavior}
               onChange={(event) => set("expectedBehavior", event.target.value)}
@@ -166,6 +174,8 @@ export default function Issues() {
           <label className="field">
             <span className="label-text">Observed behavior (optional)</span>
             <textarea
+              id="issue-observed-behavior"
+              name="observedBehavior"
               rows={2}
               value={form.observedBehavior ?? ""}
               onChange={(event) => set("observedBehavior", event.target.value)}
@@ -174,6 +184,8 @@ export default function Issues() {
           <label className="field">
             <span className="label-text">Suggested fix (optional)</span>
             <input
+              id="issue-suggested-fix"
+              name="suggestedFix"
               type="text"
               value={form.suggestedFix ?? ""}
               onChange={(event) => set("suggestedFix", event.target.value)}
@@ -203,6 +215,8 @@ export default function Issues() {
           <label className="field">
             <span className="label-text">Filter: category</span>
             <select
+              id="issue-filter-category"
+              name="filterCategory"
               value={categoryFilter}
               onChange={(event) =>
                 setCategoryFilter(event.target.value as IssueCategory | "all")
@@ -219,6 +233,8 @@ export default function Issues() {
           <label className="field">
             <span className="label-text">Filter: severity</span>
             <select
+              id="issue-filter-severity"
+              name="filterSeverity"
               value={severityFilter}
               onChange={(event) =>
                 setSeverityFilter(event.target.value as Severity | "all")

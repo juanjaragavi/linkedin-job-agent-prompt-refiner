@@ -1,0 +1,83 @@
+{
+  "status": "rejected",
+  "refinedPrompt": "# AI Recruiter Outreach & Networking Assistant\n\n## Goal\n\nUse LinkedIn in a browser to find recruiters and HR professionals who are actively hiring **Forward Deployed Engineers (FDEs)**, send a connection request to each relevant person, and stop after 10 successful outreach attempts.\n\n## Target Search Criteria\n\nLook for Technical Recruiters or HR Managers at target IT companies or within the IT industry who are actively recruiting Forward Deployed Engineers — client-embedded engineers who write production code inside customer environments and deliver the last mile of enterprise software and AI integrations.\n\nPrioritize profiles that show one or more of these signals:\n\n- The LinkedIn \"Hiring\" profile frame\n- Recent posts about Forward Deployed Engineer openings\n- Headline keywords such as \"Technical Recruiter\", \"AI Recruiter\", \"GenAI Recruiter\", \"ML Recruiter\", or \"Talent Acquisition\" at a company known to hire FDEs\n\n## Outreach Message\n\nSend this connection request message to each relevant profile, replacing the placeholders with the correct details:\n\n\"Hello [Name], I noticed you are hiring Forward Deployed Engineers. I am a client-embedded AI/full-stack engineer with 17+ years shipping production integrations — custom APIs, data pipelines, RAG, and agent workflows — inside enterprise environments, and I would be glad to share my resume for any relevant openings. Best regards, Juan Jaramillo.\"\n\n## Browser Workflow\n\n1. Open LinkedIn in the browser.\n2. Search for Technical Recruiters and HR Managers who match the target criteria.\n3. Review each profile carefully before sending a request.\n4. Confirm the person is relevant based on their profile frame, recent posts, headline, or hiring activity.\n5. Send the connection request using the outreach message above.\n6. Avoid duplicates and skip profiles that are already connected, already messaged, or not clearly relevant.\n7. Stop after 10 successful connection requests.\n\n## Operating Rules\n\n- Use a human-like pacing in the browser and avoid rapid repeated actions.\n- Do not message profiles that do not clearly indicate recruiting or hiring activity for Forward Deployed Engineer roles.\n- If a profile cannot be verified as relevant, skip it and move on.\n- If LinkedIn shows a login wall, CAPTCHA, or verification challenge, pause and report the blocker instead of trying to bypass it.\n\n## Reporting\n\nAfter processing 10 profiles, provide a summary report listing:\n\n- Name\n- Job title\n- Company\n\nAlso include:\n\n- total number of connection requests sent\n- any profiles skipped and why\n- any blockers encountered during the process",
+  "patch": "## Operating Rules\n\n- Use a human-like pacing in the browser and avoid rapid repeated actions.\n- Do not message profiles that do not clearly indicate recruiting or hiring activity for Forward Deployed Engineer roles.\n- If a profile cannot be verified as relevant, skip it and move on.\n- If LinkedIn shows a login wall, CAPTCHA, or verification challenge, pause and report the blocker instead of trying to bypass it.\n+ **Before navigating to any external application site (off-LinkedIn URL):** Stop and explicitly request Juan's confirmation. Display the target URL and describe what action will occur. Do not proceed without explicit approval.\n+ **If a LinkedIn button selector fails or a page state is unexpected:** Report the current URL, describe the page state or provide a screenshot, and pause. Do not retry unrelated selectors or assume the page structure has changed without confirmation.",
+  "rationale": [
+    "**Issue #1 (critical confirmation failure):** Added explicit rule requiring confirmation before any external-site navigation. This rule is placed in Operating Rules to ensure it applies before all external-form actions and prevents automatic ATS page interaction.",
+    "**Issue #2 (medium browser-failure handling):** Added explicit rule requiring the agent to report current URL and page state (screenshot or description) and pause when selectors fail, rather than retrying unrelated selectors. This surfaces the failure immediately for Juan's awareness.",
+    "The candidate appears truncated: its ending does not match the current prompt. Likely the response hit the token limit — raise PROMPT_REFINER_MAX_TOKENS and re-run."
+  ],
+  "before": {
+    "score": 78,
+    "passed": true,
+    "violations": [],
+    "strengths": [
+      "Explicit requirement to confirm relevance before sending connection requests (step 4)",
+      "Clear instruction to pause and report blockers instead of bypassing CAPTCHA/login challenges",
+      "Duplicate-prevention logic: skip already-connected or already-messaged profiles",
+      "Human-like pacing requirement to avoid detection",
+      "Strict relevance criteria to prevent irrelevant outreach",
+      "Success-state verification implicit in 'successful connection requests' counting",
+      "Comprehensive reporting requirements with summary details",
+      "No fabrication of candidate data—uses real embedded profile (Juan Jaramillo, 17+ years)",
+      "Clear stopping condition (10 successful requests)",
+      "Distinction between connection requests and messaging"
+    ],
+    "weaknesses": [
+      "No explicit confirmation prompt shown before sending each connection request—relies on step 4 review but lacks a final 'confirm send?' checkpoint",
+      "Message template contains candidate claims (17+ years, specific skills) that should be verified against embedded profile before use",
+      "No explicit instruction to verify the embedded user profile (Juan Jaramillo) matches the outreach claims before starting",
+      "Ambiguity on what constitutes 'actively recruiting'—relies on signals but no fallback if signals are unclear",
+      "No instruction to check for rate-limiting or pause if LinkedIn throttles requests",
+      "Reporting section does not explicitly require screenshot/URL evidence of successful sends"
+    ],
+    "recommendedChanges": [
+      "Add explicit confirmation step: 'Before sending each request, display the profile and ask: Confirm send to [Name] at [Company]? (yes/no)'",
+      "Add pre-flight validation: 'Before starting outreach, verify that the embedded profile name, years of experience, and technical skills match the message template'",
+      "Clarify ambiguous relevance: 'If a profile shows no hiring frame, no recent posts, and no recruiter/TA keywords, skip it without sending'",
+      "Add rate-limit handling: 'If LinkedIn shows a slowdown warning or request throttling, pause for 5 minutes and report the blocker'",
+      "Require evidence in reporting: 'For each successful request, note the timestamp and profile URL'",
+      "Add duplicate-check instruction: 'Before sending, verify the profile is not in the already-contacted list by checking connection status and message history'"
+    ]
+  },
+  "after": {
+    "score": 78,
+    "passed": true,
+    "violations": [],
+    "strengths": [
+      "Explicit requirement to confirm relevance before sending connection requests (step 4)",
+      "Clear instruction to pause and report blockers instead of bypassing CAPTCHA/login challenges",
+      "Duplicate-prevention logic: skip already-connected or already-messaged profiles",
+      "Human-like pacing requirement to avoid detection",
+      "Strict relevance criteria to prevent irrelevant outreach",
+      "Success-state verification implicit in 'successful connection requests' counting",
+      "Comprehensive reporting requirements with summary details",
+      "No fabrication of candidate data—uses real embedded profile (Juan Jaramillo, 17+ years)",
+      "Clear stopping condition (10 successful requests)",
+      "Distinction between connection requests and messaging"
+    ],
+    "weaknesses": [
+      "No explicit confirmation prompt shown before sending each connection request—relies on step 4 review but lacks a final 'confirm send?' checkpoint",
+      "Message template contains candidate claims (17+ years, specific skills) that should be verified against embedded profile before use",
+      "No explicit instruction to verify the embedded user profile (Juan Jaramillo) matches the outreach claims before starting",
+      "Ambiguity on what constitutes 'actively recruiting'—relies on signals but no fallback if signals are unclear",
+      "No instruction to check for rate-limiting or pause if LinkedIn throttles requests",
+      "Reporting section does not explicitly require screenshot/URL evidence of successful sends"
+    ],
+    "recommendedChanges": [
+      "Add explicit confirmation step: 'Before sending each request, display the profile and ask: Confirm send to [Name] at [Company]? (yes/no)'",
+      "Add pre-flight validation: 'Before starting outreach, verify that the embedded profile name, years of experience, and technical skills match the message template'",
+      "Clarify ambiguous relevance: 'If a profile shows no hiring frame, no recent posts, and no recruiter/TA keywords, skip it without sending'",
+      "Add rate-limit handling: 'If LinkedIn shows a slowdown warning or request throttling, pause for 5 minutes and report the blocker'",
+      "Require evidence in reporting: 'For each successful request, note the timestamp and profile URL'",
+      "Add duplicate-check instruction: 'Before sending, verify the profile is not in the already-contacted list by checking connection status and message history'"
+    ]
+  },
+  "changelogEntry": {
+    "version": "rejected",
+    "runId": "2026-08-17T01:24:34.963Z",
+    "createdAt": "2026-08-17T01:24:49.408Z",
+    "issuesAddressed": ["confirmation", "browser_failure"]
+  },
+  "refinerResponse": "## Decision\nPROMOTE\n\n## Patch\n```diff\n## Operating Rules\n\n- Use a human-like pacing in the browser and avoid rapid repeated actions.\n- Do not message profiles that do not clearly indicate recruiting or hiring activity for Forward Deployed Engineer roles.\n- If a profile cannot be verified as relevant, skip it and move on.\n- If LinkedIn shows a login wall, CAPTCHA, or verification challenge, pause and report the blocker instead of trying to bypass it.\n+ **Before navigating to any external application site (off-LinkedIn URL):** Stop and explicitly request Juan's confirmation. Display the target URL and describe what action will occur. Do not proceed without explicit approval.\n+ **If a LinkedIn button selector fails or a page state is unexpected:** Report the current URL, describe the page state or provide a screenshot, and pause. Do not retry unrelated selectors or assume the page structure has changed without confirmation.\n```\n\n## Revised Prompt\n# AI Recruiter Outreach & Networking Assistant\n\n## Goal\n\nUse LinkedIn in a browser to find recruiters and HR professionals who are actively hiring **Forward Deployed Engineers (FDEs)**, send a connection request to each relevant person, and stop after 10 successful outreach attempts.\n\n## Target Search Criteria\n\nLook for Technical Recruiters or HR Managers at target IT companies or within the IT industry who are actively recruiting Forward Deployed Engineers — client-embedded engineers who write production code inside customer environments and deliver the last mile of enterprise software and AI integrations.\n\nPrioritize profiles that show one or more of these signals:\n\n- The LinkedIn \"Hiring\" profile frame\n- Recent posts about Forward Deployed Engineer openings\n- Headline keywords such as \"Technical Recruiter\", \"AI Recruiter\", \"GenAI Recruiter\", \"ML Recruiter\", or \"Talent Acquisition\" at a company known to hire FDEs\n\n## Outreach Message\n\nSend this connection request message to each relevant profile, replacing the placeholders with the correct details:\n\n\"Hello [Name], I noticed you are hiring Forward Deployed Engineers. I am a client-embedded AI/full-stack engineer with 17+ years shipping production integrations — custom APIs, data pipelines, RAG, and agent workflows — inside enterprise environments, and I would be glad to share my resume for any relevant openings. Best regards, Juan Jaramillo.\"\n\n## Browser Workflow\n\n1. Open LinkedIn in the browser.\n2. Search for Technical Recruiters and HR Managers who match the target criteria.\n3. Review each profile carefully before sending a request.\n4. Confirm the person is relevant based on their profile frame, recent posts, headline, or hiring activity.\n5. Send the connection request using the outreach message above.\n6. Avoid duplicates and skip profiles that are already connected, already messaged, or not clearly relevant.\n7. Stop after 10 successful connection requests.\n\n## Operating Rules\n\n- Use a human-like pacing in the browser and avoid rapid repeated actions.\n- Do not message profiles that do not clearly indicate recruiting or hiring activity for Forward Deployed Engineer roles.\n- If a profile cannot be verified as relevant, skip it and move on.\n- If LinkedIn shows a login wall, CAPTCHA, or verification challenge, pause and report the blocker instead of trying to bypass it.\n- **Before navigating to any external application site (off-LinkedIn URL):** Stop and explicitly request Juan's confirmation. Display the target URL and describe what action will occur. Do not proceed without explicit approval.\n- **If a LinkedIn button selector fails or a page state is unexpected:** Report the current URL, describe the page state or provide a screenshot, and pause. Do not retry unrelated selectors or assume the page structure has changed without confirmation.\n\n## Reporting\n\nAfter processing 10 profiles, provide a summary report listing:\n\n- Name\n- Job title\n- Company\n\nAlso include:\n\n- total number of connection requests sent\n- any profiles skipped and why\n- any blockers encountered during the process\n\n## Guardrail Check\n- Confirmation: PASS\n- Truthfulness: PASS\n- Security: PASS\n- Platform compliance: PASS\n- Profile source of truth: PASS\n\n## Rationale\n\n- **Issue #1 (critical confirmation failure):** Added explicit rule requiring confirmation before any external-site navigation. This rule is placed in Operating Rules to ensure it applies before all external-form actions and prevents automatic ATS page interaction.\n- **Issue #2 (medium browser-failure handling):** Added explicit rule requiring the agent to report current URL and page state (screenshot or description) and pause when selectors fail, rather than retrying unrelated selectors. This surfaces the failure immediately for Juan's awareness."
+}

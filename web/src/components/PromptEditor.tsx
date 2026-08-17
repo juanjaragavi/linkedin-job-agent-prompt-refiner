@@ -7,25 +7,18 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { getCases, getPrompt, savePrompt, ApiError } from "../api";
+import { getCases, savePrompt, ApiError } from "../api";
 import type { RegressionCase } from "../types";
 import { renderMarkdown } from "../markdown";
 import { escapeRegExp, findMatches, highlightMarkdown } from "../highlight";
+import { useWorkspace } from "../workspace";
 
 type Mode = "split" | "preview";
-
-interface Draft {
-  content: string;
-  savedAt: string;
-}
 
 interface FindState {
   query: string;
   index: number;
 }
-
-const DRAFT_KEY = "prompt-editor.draft.v1";
-const AUTOSAVE_DELAY_MS = 500;
 
 interface OutlineItem {
   depth: number;
@@ -38,10 +31,21 @@ function countWords(text: string): number {
   return words ? words.length : 0;
 }
 
-export default function PromptEditor() {
-  const [content, setContent] = useState("");
+export default function PromptEditor({
+  onNavigate,
+}: {
+  onNavigate?: (tab: "dashboard") => void;
+}) {
+  const {
+    document: workspaceDoc,
+    dirty,
+    updateContent,
+    markClean,
+  } = useWorkspace();
+  const content = workspaceDoc?.content ?? "";
+  const loaded = workspaceDoc !== null;
+
   const [mode, setMode] = useState<Mode>("split");
-  const [dirty, setDirty] = useState(false);
   const [armed, setArmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{
@@ -49,9 +53,9 @@ export default function PromptEditor() {
     text: string;
   } | null>(null);
   const [cases, setCases] = useState<RegressionCase[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
-  const [draftBanner, setDraftBanner] = useState<Draft | null>(null);
+
+  const setContent = updateContent;
 
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -60,103 +64,20 @@ export default function PromptEditor() {
   const outlineRef = useRef<HTMLElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const syncing = useRef(false);
-  const loadedRef = useRef<string | null>(null);
-  const contentRef = useRef(content);
-  const dirtyRef = useRef(dirty);
   const navPendingRef = useRef(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      const [promptResult, casesResult] = await Promise.all([
-        getPrompt(),
-        getCases(),
-      ]);
-      loadedRef.current = promptResult.content;
-      setContent(promptResult.content);
-      setCases(casesResult.cases);
-      setDirty(false);
-      setArmed(false);
-      setMessage(null);
-      setLoaded(true);
-      setCursor({ line: 1, col: 1 });
-      restoreDraftBanner(promptResult.content);
-    } catch (e) {
-      setMessage({
-        kind: "error",
-        text: e instanceof Error ? e.message : String(e),
-      });
-    }
+  useEffect(() => {
+    void getCases()
+      .then((result) => setCases(result.cases))
+      .catch(() => {});
   }, []);
 
-  /** If a stored draft differs from the server copy, offer to restore it. */
-  const restoreDraftBanner = (serverContent: string): void => {
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) {
-        setDraftBanner(null);
-        return;
-      }
-      const draft = JSON.parse(raw) as Draft;
-      if (draft.content && draft.content !== serverContent) {
-        setDraftBanner(draft);
-      } else {
-        localStorage.removeItem(DRAFT_KEY);
-        setDraftBanner(null);
-      }
-    } catch {
-      localStorage.removeItem(DRAFT_KEY);
-      setDraftBanner(null);
-    }
-  };
-
+  // Reset per-document editor state when a different document is loaded.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  // Keep refs in sync for the unmount flush.
-  useEffect(() => {
-    contentRef.current = content;
-  }, [content]);
-
-  useEffect(() => {
-    dirtyRef.current = dirty;
-  }, [dirty]);
-
-  // Debounced autosave to localStorage while the document is dirty.
-  useEffect(() => {
-    if (!dirty || content === loadedRef.current) return;
-    const timer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(
-          DRAFT_KEY,
-          JSON.stringify({ content, savedAt: new Date().toISOString() }),
-        );
-      } catch {
-        /* storage unavailable */
-      }
-    }, AUTOSAVE_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [content, dirty]);
-
-  // Flush any unsaved changes if the component unmounts mid-edit.
-  useEffect(() => {
-    return () => {
-      const current = contentRef.current;
-      if (dirtyRef.current && current !== loadedRef.current) {
-        try {
-          localStorage.setItem(
-            DRAFT_KEY,
-            JSON.stringify({
-              content: current,
-              savedAt: new Date().toISOString(),
-            }),
-          );
-        } catch {
-          /* storage unavailable */
-        }
-      }
-    };
-  }, []);
+    setArmed(false);
+    setMessage(null);
+    setCursor({ line: 1, col: 1 });
+  }, [workspaceDoc?.loadedAt]);
 
   // Keep the highlight layer's right padding in step with the textarea
   // scrollbar so wrapped lines stay aligned.
@@ -378,7 +299,6 @@ export default function PromptEditor() {
 
   const markDirty = (next: string): void => {
     setContent(next);
-    setDirty(true);
     setArmed(false);
   };
 
@@ -654,38 +574,6 @@ export default function PromptEditor() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
   };
 
-  /* ---- draft restore / discard ---- */
-
-  const restoreDraft = (): void => {
-    if (!draftBanner) return;
-    setContent(draftBanner.content);
-    setDirty(true);
-    setArmed(false);
-    setDraftBanner(null);
-    try {
-      localStorage.removeItem(DRAFT_KEY);
-    } catch {
-      /* storage unavailable */
-    }
-  };
-
-  const discardDraft = (): void => {
-    setDraftBanner(null);
-    try {
-      localStorage.removeItem(DRAFT_KEY);
-    } catch {
-      /* storage unavailable */
-    }
-  };
-
-  const formatDraftTime = (iso: string): string => {
-    try {
-      return new Date(iso).toLocaleString();
-    } catch {
-      return "earlier";
-    }
-  };
-
   /* ---- save (two-step, unchanged from the backend contract) ---- */
 
   const handleSave = async (): Promise<void> => {
@@ -713,18 +601,12 @@ export default function PromptEditor() {
 
       setSaving(true);
       const result = await savePrompt(content, true);
-      loadedRef.current = content;
       setArmed(false);
-      setDirty(false);
+      markClean();
       setMessage({
         kind: "ok",
         text: `Saved ${result.chars.toLocaleString()} chars. Backup: ${result.backup}`,
       });
-      try {
-        localStorage.removeItem(DRAFT_KEY);
-      } catch {
-        /* storage unavailable */
-      }
     } catch (e) {
       setMessage({
         kind: "error",
@@ -764,7 +646,9 @@ export default function PromptEditor() {
     <div className="grid">
       <section className="card card-wide" aria-labelledby="editor-title">
         <div className="editor-head">
-          <h2 id="editor-title">Active prompt — manuscript</h2>
+          <h2 id="editor-title">
+            {workspaceDoc ? workspaceDoc.name : "Markdown editor"}
+          </h2>
           <div className="row" style={{ margin: 0 }}>
             <div className="seg" role="group" aria-label="Editor mode">
               <button
@@ -793,17 +677,10 @@ export default function PromptEditor() {
             </button>
             <button
               type="button"
-              className="btn btn-outline"
-              onClick={() => void refresh()}
-              disabled={!loaded}
-            >
-              Reload
-            </button>
-            <button
-              type="button"
               className={`btn ${armed ? "btn-danger" : "btn-primary"}`}
               onClick={() => void handleSave()}
               disabled={saving || !loaded}
+              title="Write this document to the active on-file prompt"
             >
               {saving
                 ? "Saving…"
@@ -834,35 +711,6 @@ export default function PromptEditor() {
           )}
         </div>
 
-        {draftBanner && (
-          <div className="draft-banner" role="alert">
-            <span className="draft-icon" aria-hidden="true">
-              ✎
-            </span>
-            <p>
-              <strong>Unsaved draft found</strong> — edited{" "}
-              {formatDraftTime(draftBanner.savedAt)}. Restore it to keep going,
-              or discard it and reload the on-file prompt.
-            </p>
-            <div className="draft-actions">
-              <button
-                type="button"
-                className="btn btn-small btn-primary"
-                onClick={restoreDraft}
-              >
-                Restore draft
-              </button>
-              <button
-                type="button"
-                className="btn btn-small btn-outline"
-                onClick={discardDraft}
-              >
-                Discard
-              </button>
-            </div>
-          </div>
-        )}
-
         {message && (
           <div
             className={`check-banner ${message.kind === "ok" ? "banner-ok" : "banner-bad"}`}
@@ -873,7 +721,25 @@ export default function PromptEditor() {
         )}
 
         {!loaded ? (
-          <p className="hint">Loading…</p>
+          <div className="editor-empty">
+            <span className="editor-empty-icon" aria-hidden="true">
+              ✎
+            </span>
+            <p className="editor-empty-title">No document loaded</p>
+            <p className="hint">
+              Upload or paste a Markdown prompt on the Dashboard. It opens here
+              for live editing, and the preview updates as you type.
+            </p>
+            {onNavigate && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => onNavigate("dashboard")}
+              >
+                Go to Dashboard
+              </button>
+            )}
+          </div>
         ) : (
           <div className="editor-rail">
             <div className="editor-body">
@@ -961,6 +827,8 @@ export default function PromptEditor() {
                   </span>
                   <input
                     ref={findInputRef}
+                    id="prompt-editor-find"
+                    name="promptEditorFind"
                     type="text"
                     value={find.query}
                     onChange={(event) => handleFindChange(event.target.value)}
@@ -1029,11 +897,12 @@ export default function PromptEditor() {
                       </div>
                       <textarea
                         ref={areaRef}
+                        id="prompt-editor-source"
+                        name="promptEditorSource"
                         className="editor-textarea"
                         value={content}
                         onChange={(event) => {
                           setContent(event.target.value);
-                          setDirty(true);
                           setArmed(false);
                           updateCursor();
                         }}

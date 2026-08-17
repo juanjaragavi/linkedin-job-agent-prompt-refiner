@@ -24,11 +24,7 @@ import type {
   RefineRunResponse,
 } from "../types";
 import { renderMarkdown } from "../markdown";
-
-interface UploadedPrompt {
-  name: string;
-  content: string;
-}
+import { documentStats, useWorkspace } from "../workspace";
 
 const MAX_UPLOAD_CHARS = 150_000;
 
@@ -36,16 +32,16 @@ function isMarkdownFile(name: string): boolean {
   return /\.(md|markdown|mdown|mkd)$/i.test(name);
 }
 
-function countWords(text: string): number {
-  const words = text.trim().match(/\S+/g);
-  return words ? words.length : 0;
-}
-
 export default function Dashboard({
   onNavigate,
 }: {
-  onNavigate: (tab: "history") => void;
+  onNavigate: (tab: "history" | "editor") => void;
 }) {
+  const {
+    document: workspaceDoc,
+    loadDocument,
+    clearDocument,
+  } = useWorkspace();
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [refinerModel, setRefinerModel] = useState<string>("");
@@ -60,7 +56,6 @@ export default function Dashboard({
   const [runResult, setRunResult] = useState<RefineRunResponse | null>(null);
   const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
   const [checkRunning, setCheckRunning] = useState(false);
-  const [uploaded, setUploaded] = useState<UploadedPrompt | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [sourceMode, setSourceMode] = useState<"upload" | "paste">("upload");
   const [pasteText, setPasteText] = useState("");
@@ -68,16 +63,16 @@ export default function Dashboard({
   const logRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const uploadedStats = useMemo(() => {
-    if (!uploaded) return null;
-    return {
-      chars: uploaded.content.length,
-      words: countWords(uploaded.content),
-      lines: uploaded.content.split("\n").length,
-    };
-  }, [uploaded]);
+  const uploadedStats = useMemo(
+    () => (workspaceDoc ? documentStats(workspaceDoc.content) : null),
+    [workspaceDoc],
+  );
 
-  const loadPrompt = (name: string, content: string): void => {
+  const loadPrompt = (
+    name: string,
+    content: string,
+    source: "upload" | "paste",
+  ): void => {
     const trimmed = content.trim();
     if (trimmed.length === 0) {
       setUploadError("The prompt is empty — paste or upload a non-empty file.");
@@ -89,7 +84,7 @@ export default function Dashboard({
       );
       return;
     }
-    setUploaded({ name, content: trimmed });
+    loadDocument(name, trimmed, source);
     setUploadError(null);
   };
 
@@ -103,7 +98,7 @@ export default function Dashboard({
     const reader = new FileReader();
     reader.onload = () => {
       const content = typeof reader.result === "string" ? reader.result : "";
-      loadPrompt(file.name, content);
+      loadPrompt(file.name, content, "upload");
     };
     reader.onerror = () =>
       setUploadError("The file could not be read — try again.");
@@ -124,11 +119,11 @@ export default function Dashboard({
   };
 
   const handlePasteLoad = (): void => {
-    loadPrompt("pasted prompt", pasteText);
+    loadPrompt("pasted prompt", pasteText, "paste");
   };
 
   const clearUploaded = (): void => {
-    setUploaded(null);
+    clearDocument();
     setUploadError(null);
     setPasteText("");
   };
@@ -177,6 +172,10 @@ export default function Dashboard({
   }, [events]);
 
   const handleRun = async (): Promise<void> => {
+    if (!workspaceDoc) {
+      setRunError("Load a prompt first — upload or paste a Markdown file.");
+      return;
+    }
     setRunning(true);
     setRunError(null);
     setRunResult(null);
@@ -190,7 +189,7 @@ export default function Dashboard({
         items.length > 0 ? items : undefined,
         refinerModel || undefined,
         evaluatorModel || undefined,
-        uploaded?.content,
+        workspaceDoc.content,
       );
       setRunResult(result);
       void refreshHealth();
@@ -221,9 +220,10 @@ export default function Dashboard({
       <section className="card card-wide" aria-labelledby="start-title">
         <h2 id="start-title">Start here — load a prompt</h2>
         <p className="hint">
-          Upload or paste the prompt you want to refine. It is used for this run
-          only — the active on-file prompt is never overwritten. If you skip
-          this step, the active prompt is used.
+          Upload or paste the prompt you want to refine. Nothing is loaded until
+          you choose a document, and the active on-file prompt is never
+          overwritten. Whatever you load here also opens in the Markdown editor
+          so you can edit it live.
         </p>
 
         <div className="seg" role="group" aria-label="Prompt source">
@@ -267,6 +267,8 @@ export default function Dashboard({
             <p className="hint">Only .md files are accepted.</p>
             <input
               ref={fileInputRef}
+              id="dashboard-prompt-file"
+              name="promptFile"
               type="file"
               accept=".md,.markdown,text/markdown"
               className="visually-hidden"
@@ -276,6 +278,8 @@ export default function Dashboard({
         ) : (
           <div className="paste-box">
             <textarea
+              id="dashboard-paste-prompt"
+              name="pastedPrompt"
               rows={8}
               value={pasteText}
               onChange={(event) => setPasteText(event.target.value)}
@@ -301,11 +305,11 @@ export default function Dashboard({
           </div>
         )}
 
-        {uploaded && uploadedStats && (
+        {workspaceDoc && uploadedStats && (
           <div className="uploaded-prompt">
             <div className="uploaded-head">
               <p className="uploaded-name">
-                <strong>Prompt loaded:</strong> {uploaded.name}
+                <strong>Prompt loaded:</strong> {workspaceDoc.name}
               </p>
               <div className="doc-pills">
                 <span className="doc-pill">
@@ -321,6 +325,13 @@ export default function Dashboard({
               <div className="row" style={{ margin: 0 }}>
                 <button
                   type="button"
+                  className="btn btn-small"
+                  onClick={() => onNavigate("editor")}
+                >
+                  Edit in Markdown editor
+                </button>
+                <button
+                  type="button"
                   className="btn btn-small btn-outline"
                   onClick={clearUploaded}
                 >
@@ -332,7 +343,7 @@ export default function Dashboard({
               <div
                 className="uploaded-preview-inner"
                 dangerouslySetInnerHTML={{
-                  __html: renderMarkdown(uploaded.content),
+                  __html: renderMarkdown(workspaceDoc.content),
                 }}
               />
             </div>
@@ -418,16 +429,16 @@ export default function Dashboard({
         <h2 id="run-title">Run refinement</h2>
         <p className="hint prompt-source">
           <span
-            className={`chip ${uploaded ? "chip-ok" : ""}`}
+            className={`chip ${workspaceDoc ? "chip-ok" : "chip-error"}`}
             title="Prompt that will be refined"
           >
-            {uploaded
-              ? `Prompt source: ${uploaded.name} (${uploaded.content.length.toLocaleString()} chars)`
-              : `Prompt source: active on-file prompt (${(health?.status.promptChars ?? 0).toLocaleString()} chars)`}
+            {workspaceDoc
+              ? `Prompt source: ${workspaceDoc.name} (${workspaceDoc.content.length.toLocaleString()} chars)`
+              : "No prompt loaded"}
           </span>
-          {!uploaded && (
+          {!workspaceDoc && (
             <span className="hint">
-              Load one above to refine a different prompt.
+              Upload or paste a Markdown prompt above to enable a run.
             </span>
           )}
         </p>
@@ -436,6 +447,8 @@ export default function Dashboard({
             Issues file (JSON, inside the project root)
           </span>
           <input
+            id="dashboard-issues-file"
+            name="issuesFile"
             type="text"
             value={issuesFile}
             onChange={(event) => setIssuesFile(event.target.value)}
@@ -445,6 +458,8 @@ export default function Dashboard({
           <label className="field">
             <span className="label-text">Refiner model</span>
             <select
+              id="dashboard-refiner-model"
+              name="refinerModel"
               value={refinerModel}
               onChange={(event) => setRefinerModel(event.target.value)}
             >
@@ -460,6 +475,8 @@ export default function Dashboard({
           <label className="field">
             <span className="label-text">Evaluator model</span>
             <select
+              id="dashboard-evaluator-model"
+              name="evaluatorModel"
               value={evaluatorModel}
               onChange={(event) => setEvaluatorModel(event.target.value)}
             >
@@ -479,6 +496,8 @@ export default function Dashboard({
             ignored)
           </span>
           <textarea
+            id="dashboard-feedback"
+            name="humanFeedback"
             rows={4}
             value={feedback}
             onChange={(event) => setFeedback(event.target.value)}
@@ -492,7 +511,8 @@ export default function Dashboard({
             type="button"
             className="btn btn-primary"
             onClick={() => void handleRun()}
-            disabled={running}
+            disabled={running || !workspaceDoc}
+            title={workspaceDoc ? undefined : "Load a prompt first"}
           >
             {running ? "Running…" : "Run refinement"}
           </button>

@@ -6,11 +6,21 @@ import PromptEditor from "./components/PromptEditor";
 import Issues from "./components/Issues";
 import History from "./components/History";
 import Manual from "./components/Manual";
+import { WorkspaceProvider } from "./workspace";
 
 type Tab = "dashboard" | "editor" | "issues" | "history" | "manual";
 type Theme = "light" | "dark";
 
 const THEME_KEY = "prompt-editor.theme";
+const SIDEBAR_KEY = "prompt-editor.sidebar-collapsed";
+
+function initialCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 function initialTheme(): Theme {
   try {
@@ -174,8 +184,17 @@ const TABS: Array<{ id: Tab; label: string }> = [
 export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [theme, setTheme] = useState<Theme>(initialTheme);
+  const [collapsed, setCollapsed] = useState<boolean>(initialCollapsed);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, String(collapsed));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [collapsed]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -208,42 +227,21 @@ export default function App() {
   const apiOnline = !healthError && health !== null;
 
   return (
-    <div className="app">
-      <aside className="sidebar" aria-label="Primary navigation">
-        <div className="side-brand">
-          <span className="brand-mark">
-            Prompt<em>refiner</em>
-          </span>
-        </div>
-
-        <nav className="side-nav">
-          {TABS.map((t) => (
+    <WorkspaceProvider>
+      <div className={collapsed ? "app app-collapsed" : "app"}>
+        <aside className="sidebar" aria-label="Primary navigation">
+          <div className="side-brand">
+            <span className="brand-mark">
+              Prompt<em>refiner</em>
+            </span>
             <button
-              key={t.id}
               type="button"
-              className={tab === t.id ? "nav-item active" : "nav-item"}
-              aria-current={tab === t.id ? "page" : undefined}
-              onClick={() => setTab(t.id)}
+              className="side-collapse"
+              onClick={() => setCollapsed((value) => !value)}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              <span className="nav-glyph">{GLYPHS[t.id]}</span>
-              {t.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="side-foot">
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={toggleTheme}
-            aria-pressed={theme === "dark"}
-            title={
-              theme === "dark"
-                ? "Switch to day paper"
-                : "Switch to night manuscript"
-            }
-          >
-            {theme === "dark" ? (
               <svg
                 width="14"
                 height="14"
@@ -251,84 +249,132 @@ export default function App() {
                 fill="none"
                 aria-hidden="true"
               >
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="3.4"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                />
                 <path
-                  d="M8 1.2v1.8M8 13v1.8M1.2 8h1.8M13 8h1.8M3.2 3.2l1.3 1.3M11.5 11.5l1.3 1.3M3.2 12.8l1.3-1.3M11.5 4.5l1.3-1.3"
+                  d={collapsed ? "M6 3l5 5-5 5" : "M10 3L5 8l5 5"}
                   stroke="currentColor"
-                  strokeWidth="1.4"
+                  strokeWidth="1.6"
                   strokeLinecap="round"
-                />
-              </svg>
-            ) : (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path
-                  d="M13.4 9.6A5.7 5.7 0 0 1 6.4 2.6a5.7 5.7 0 1 0 7 7Z"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
                   strokeLinejoin="round"
                 />
               </svg>
-            )}
-            <span>{theme === "dark" ? "Day paper" : "Night manuscript"}</span>
-          </button>
-          <div className="side-status" role="status">
-            <span className={apiOnline ? "chip chip-ok" : "chip chip-error"}>
-              {healthError
-                ? "API offline"
-                : health
-                  ? health.status.promptPresent
-                    ? "Prompt on file"
-                    : "Prompt missing"
-                  : "Connecting…"}
-            </span>
-            <span
-              className={
-                health?.providers.anthropic ? "chip chip-ok" : "chip chip-error"
-              }
-              title="Anthropic provider key"
-            >
-              Anthropic {health?.providers.anthropic ? "✓" : "✕"}
-            </span>
-            <span
-              className={
-                health?.providers.nvidia ? "chip chip-ok" : "chip chip-error"
-              }
-              title="NVIDIA provider key"
-            >
-              NVIDIA {health?.providers.nvidia ? "✓" : "✕"}
-            </span>
+            </button>
           </div>
-          <span className="side-model" title="Default refiner model">
-            {health?.status.model ?? "model —"}
-          </span>
-          <p className="side-motto">
-            “Nothing is promoted without your hand. Every write is backed up,
-            every change audited.”
-          </p>
-        </div>
-      </aside>
 
-      <main className="main">
-        <div className="view">
-          {tab === "dashboard" && <Dashboard onNavigate={setTab} />}
-          {tab === "editor" && <PromptEditor />}
-          {tab === "issues" && <Issues />}
-          {tab === "history" && <History />}
-          {tab === "manual" && <Manual />}
-        </div>
-      </main>
-    </div>
+          <nav className="side-nav">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={tab === t.id ? "nav-item active" : "nav-item"}
+                aria-current={tab === t.id ? "page" : undefined}
+                onClick={() => setTab(t.id)}
+                title={collapsed ? t.label : undefined}
+              >
+                <span className="nav-glyph">{GLYPHS[t.id]}</span>
+                <span className="nav-label">{t.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="side-foot">
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-pressed={theme === "dark"}
+              title={
+                theme === "dark"
+                  ? "Switch to day paper"
+                  : "Switch to night manuscript"
+              }
+            >
+              {theme === "dark" ? (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="3.4"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                  />
+                  <path
+                    d="M8 1.2v1.8M8 13v1.8M1.2 8h1.8M13 8h1.8M3.2 3.2l1.3 1.3M11.5 11.5l1.3 1.3M3.2 12.8l1.3-1.3M11.5 4.5l1.3-1.3"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M13.4 9.6A5.7 5.7 0 0 1 6.4 2.6a5.7 5.7 0 1 0 7 7Z"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+              <span>{theme === "dark" ? "Day paper" : "Night manuscript"}</span>
+            </button>
+            <div className="side-status" role="status">
+              <span className={apiOnline ? "chip chip-ok" : "chip chip-error"}>
+                {healthError
+                  ? "API offline"
+                  : health
+                    ? "API online"
+                    : "Connecting…"}
+              </span>
+              <span
+                className={
+                  health?.providers.anthropic
+                    ? "chip chip-ok"
+                    : "chip chip-error"
+                }
+                title="Anthropic provider key"
+              >
+                Anthropic {health?.providers.anthropic ? "✓" : "✕"}
+              </span>
+              <span
+                className={
+                  health?.providers.nvidia ? "chip chip-ok" : "chip chip-error"
+                }
+                title="NVIDIA provider key"
+              >
+                NVIDIA {health?.providers.nvidia ? "✓" : "✕"}
+              </span>
+            </div>
+            <span className="side-model" title="Default refiner model">
+              {health?.status.model ?? "model —"}
+            </span>
+            <p className="side-motto">
+              “Nothing is promoted without your hand. Every write is backed up,
+              every change audited.”
+            </p>
+          </div>
+        </aside>
+
+        <main className="main">
+          <div className="view">
+            {tab === "dashboard" && <Dashboard onNavigate={setTab} />}
+            {tab === "editor" && <PromptEditor onNavigate={setTab} />}
+            {tab === "issues" && <Issues />}
+            {tab === "history" && <History />}
+            {tab === "manual" && <Manual />}
+          </div>
+        </main>
+      </div>
+    </WorkspaceProvider>
   );
 }

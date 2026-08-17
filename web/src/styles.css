@@ -226,6 +226,11 @@ a {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
+  transition: grid-template-columns 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.app-collapsed {
+  grid-template-columns: 62px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -244,10 +249,74 @@ a {
 
 .side-brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
   padding: 0 0.5rem 1.2rem;
   border-bottom: 1px solid var(--line);
+}
+
+.side-collapse {
+  appearance: none;
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease;
+}
+
+.side-collapse:hover {
+  color: var(--accent);
+  border-color: var(--line-strong);
+}
+
+/* ---- collapsed rail: icons only ---- */
+
+.app-collapsed .sidebar {
+  padding: 1.4rem 0.6rem 1.1rem;
+  overflow: hidden;
+}
+
+.app-collapsed .brand-mark,
+.app-collapsed .nav-label,
+.app-collapsed .side-status,
+.app-collapsed .side-model,
+.app-collapsed .side-motto,
+.app-collapsed .theme-toggle span {
+  display: none;
+}
+
+.app-collapsed .side-brand {
+  padding: 0 0 1.2rem;
+  justify-content: center;
+}
+
+.app-collapsed .side-collapse {
+  margin-left: 0;
+}
+
+.app-collapsed .nav-item {
+  justify-content: center;
+  padding: 0.55rem 0;
+  gap: 0;
+}
+
+.app-collapsed .nav-item.active::before {
+  left: -0.2rem;
+}
+
+.app-collapsed .theme-toggle {
+  justify-content: center;
+  padding: 0.5rem 0;
 }
 
 .brand-mark {
@@ -420,6 +489,12 @@ a {
 .view {
   max-width: 1240px;
   margin: 0 auto;
+  transition: max-width 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Collapsing the rail hands the reclaimed width to the content. */
+.app-collapsed .view {
+  max-width: none;
 }
 
 .view > section {
@@ -1221,50 +1296,42 @@ textarea {
   background: var(--warn-bg);
 }
 
-/* Unsaved-draft restore banner */
+/* Empty state — no document loaded */
 
-.draft-banner {
+.editor-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.6rem 1rem;
-  border-radius: var(--radius-sm);
-  padding: 0.7rem 0.9rem;
-  margin: 0.6rem 0 0.2rem;
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-line);
-  color: var(--warn);
-  animation: rise 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  text-align: center;
+  gap: 0.6rem;
+  padding: 3.2rem 1.5rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--paper-2);
 }
 
-.draft-banner p {
-  margin: 0;
-  flex: 1;
-  min-width: 220px;
-  font-size: 0.9rem;
-  color: var(--ink-soft);
+.editor-empty .hint {
+  max-width: 42ch;
 }
 
-.draft-banner p strong {
-  color: var(--warn);
-}
-
-.draft-icon {
-  flex: 0 0 auto;
+.editor-empty-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.7rem;
-  height: 1.7rem;
-  border-radius: 8px;
-  background: var(--warn);
-  color: var(--warn-bg);
-  font-size: 0.95rem;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--accent);
+  font-size: 1.2rem;
 }
 
-.draft-actions {
-  display: flex;
-  gap: 0.45rem;
+.editor-empty-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
 }
 
 /* Toolbar */
@@ -2028,8 +2095,33 @@ mark {
    ========================================================================== */
 
 @media (max-width: 1020px) {
-  .app {
+  /* Below this width the rail becomes a top bar, so collapsing is moot. */
+  .app,
+  .app-collapsed {
     grid-template-columns: 1fr;
+  }
+
+  .side-collapse,
+  .app-collapsed .side-collapse {
+    display: none;
+  }
+
+  .app-collapsed .sidebar {
+    padding: 0.9rem 1.1rem;
+    overflow: visible;
+  }
+
+  .app-collapsed .brand-mark,
+  .app-collapsed .nav-label,
+  .app-collapsed .side-status,
+  .app-collapsed .side-model,
+  .app-collapsed .theme-toggle span {
+    display: revert;
+  }
+
+  .app-collapsed .nav-item {
+    justify-content: flex-start;
+    gap: 0.7rem;
   }
 
   .manual-grid {
