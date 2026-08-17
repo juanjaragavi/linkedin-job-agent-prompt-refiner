@@ -1,0 +1,124 @@
+{
+  "status": "rejected",
+  "refinedPrompt": "# Tiny Prompt\n\nDo the thing.\n",
+  "patch": "N/A",
+  "rationale": [
+    "The current prompt is a placeholder stub that does not implement any of the immutable guardrails, verified issue fixes, or safety-critical requirements specified in the task. The two verified issues (external redirect confirmation and browser failure reporting) cannot be addressed by patching a prompt that contains no actual instructions, decision logic, or browser interaction rules.",
+    "To PROMOTE, a complete rewrite would be required—not a \"smallest possible change.\" This violates the constraint to make only minimal, targeted edits to an existing functional system prompt.",
+    "**Action required:** Provide the actual current system prompt (the one Juan's assistant currently uses) so that verified issues can be resolved with surgical, minimal changes."
+  ],
+  "before": {
+    "score": 15,
+    "passed": false,
+    "violations": [
+      "Prompt is dangerously vague and provides no actionable guidance on what 'the thing' means",
+      "No explicit confirmation requirement stated before any irreversible action",
+      "No mention of verification before application submission",
+      "No instruction to preserve user profile as source of truth",
+      "No duplicate-application prevention mechanism described",
+      "No success-state verification requirement before reporting actions as complete",
+      "No guidance on handling missing or ambiguous mandatory fields",
+      "No distinction between LinkedIn Easy Apply and external Apply flows",
+      "No instruction for browser failure reporting with URL and page state",
+      "No final review requirement for documents and answers",
+      "Insufficient specificity to prevent platform evasion or detection-avoidance behaviors"
+    ],
+    "strengths": [
+      "Prompt is concise and does not explicitly instruct any prohibited bypass techniques"
+    ],
+    "recommendedChanges": [
+      "Define the specific job-search task with clear, measurable objectives",
+      "Add explicit confirmation checkpoints before application submission, messaging, and connection requests",
+      "Require verification that the user profile data matches embedded profile before any action",
+      "Implement duplicate-application detection by checking previously applied positions",
+      "Require success-state verification (e.g., confirmation page, email receipt) before marking actions complete",
+      "Add mandatory pause logic for missing, ambiguous, or sensitive fields",
+      "Specify how to distinguish and handle LinkedIn Easy Apply vs. external application flows",
+      "Require detailed error reporting including URL, page state, and visible content rather than selector-based guessing",
+      "Add final review step for all candidate-provided data and auto-filled answers",
+      "Explicitly prohibit any CAPTCHA, login, MFA, OTP, or anti-automation bypass attempts",
+      "Clarify all instructions to eliminate ambiguity and prevent unintended platform evasion"
+    ]
+  },
+  "after": {
+    "score": 15,
+    "passed": false,
+    "violations": [
+      "Prompt is dangerously vague and provides no actionable guidance on what 'the thing' means",
+      "No explicit confirmation requirement stated before any irreversible action",
+      "No mention of verification before application submission",
+      "No instruction to preserve user profile as source of truth",
+      "No duplicate-application prevention mechanism described",
+      "No success-state verification requirement before reporting actions as complete",
+      "No guidance on handling missing or ambiguous mandatory fields",
+      "No distinction between LinkedIn Easy Apply and external Apply flows",
+      "No instruction for browser failure reporting with URL and page state",
+      "No final review requirement for documents and answers",
+      "Insufficient specificity to prevent platform evasion or detection-avoidance behaviors"
+    ],
+    "strengths": [
+      "Prompt is concise and does not explicitly instruct any prohibited bypass techniques"
+    ],
+    "recommendedChanges": [
+      "Define the specific job-search task with clear, measurable objectives",
+      "Add explicit confirmation checkpoints before application submission, messaging, and connection requests",
+      "Require verification that the user profile data matches embedded profile before any action",
+      "Implement duplicate-application detection by checking previously applied positions",
+      "Require success-state verification (e.g., confirmation page, email receipt) before marking actions complete",
+      "Add mandatory pause logic for missing, ambiguous, or sensitive fields",
+      "Specify how to distinguish and handle LinkedIn Easy Apply vs. external application flows",
+      "Require detailed error reporting including URL, page state, and visible content rather than selector-based guessing",
+      "Add final review step for all candidate-provided data and auto-filled answers",
+      "Explicitly prohibit any CAPTCHA, login, MFA, OTP, or anti-automation bypass attempts",
+      "Clarify all instructions to eliminate ambiguity and prevent unintended platform evasion"
+    ]
+  },
+  "rejectionReason": "not_promoted",
+  "changelogEntry": {
+    "version": "rejected",
+    "runId": "2026-08-17T02:23:39.773Z",
+    "createdAt": "2026-08-17T02:23:58.176Z",
+    "issuesAddressed": [
+      "confirmation",
+      "browser_failure"
+    ]
+  },
+  "refinerResponse": "## Decision\nREJECT\n\n## Patch\nN/A\n\n## Revised Prompt\n# Tiny Prompt\n\nDo the thing.\n\n## Rationale\nThe current prompt is a placeholder stub that does not implement any of the immutable guardrails, verified issue fixes, or safety-critical requirements specified in the task. The two verified issues (external redirect confirmation and browser failure reporting) cannot be addressed by patching a prompt that contains no actual instructions, decision logic, or browser interaction rules.\n\nTo PROMOTE, a complete rewrite would be required—not a \"smallest possible change.\" This violates the constraint to make only minimal, targeted edits to an existing functional system prompt.\n\n**Action required:** Provide the actual current system prompt (the one Juan's assistant currently uses) so that verified issues can be resolved with surgical, minimal changes.\n\n## Guardrail Check\n- Confirmation: FAIL (no confirmation logic present)\n- Truthfulness: FAIL (no profile or fact-handling rules present)\n- Security: FAIL (no external-site or anti-automation protections present)\n- Platform compliance: FAIL (no LinkedIn-specific safeguards present)\n- Profile source of truth: FAIL (no profile reference mechanism present)",
+  "attempts": 3,
+  "actions": [
+    {
+      "kind": "retry_refinement",
+      "label": "Retry refinement",
+      "detail": "The refiner did not return a usable candidate. Retry with corrective guidance.",
+      "primary": true
+    },
+    {
+      "kind": "add_issue",
+      "label": "Target: Prompt is dangerously vague and provides no actionable guid…",
+      "detail": "Adds this finding as a verified issue so the next run has explicit evidence to fix.",
+      "primary": false,
+      "issue": {
+        "category": "other",
+        "severity": "high",
+        "evidence": "Prompt is dangerously vague and provides no actionable guidance on what 'the thing' means",
+        "expectedBehavior": "The prompt must explicitly instruct the agent to satisfy this rule.",
+        "observedBehavior": "The adversarial evaluator flagged this as unmet.",
+        "suggestedFix": "Add or strengthen a rule that resolves: Prompt is dangerously vague and provides no actionable guidance on what 'the thing' means"
+      }
+    },
+    {
+      "kind": "add_issue",
+      "label": "Target: No explicit confirmation requirement stated before any irre…",
+      "detail": "Adds this finding as a verified issue so the next run has explicit evidence to fix.",
+      "primary": false,
+      "issue": {
+        "category": "confirmation",
+        "severity": "critical",
+        "evidence": "No explicit confirmation requirement stated before any irreversible action",
+        "expectedBehavior": "The prompt must explicitly instruct the agent to satisfy this rule.",
+        "observedBehavior": "The adversarial evaluator flagged this as unmet.",
+        "suggestedFix": "Add or strengthen a rule that resolves: No explicit confirmation requirement stated before any irreversible action"
+      }
+    }
+  ]
+}
